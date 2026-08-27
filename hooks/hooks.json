@@ -1,5 +1,5 @@
 {
-  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente.",
+  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente, y muestra el estado del cuaderno al abrir la sesion.",
   "hooks": {
     "Stop": [
       {
@@ -9,6 +9,18 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop_gate.py",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session_report.py",
+            "timeout": 10
           }
         ]
       }
