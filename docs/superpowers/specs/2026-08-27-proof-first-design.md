@@ -90,7 +90,8 @@ Del 0 al 2 se está confiando. Del 3 para arriba, comprobando.
 ### Regla operativa
 
 ```
-Plata, auth, datos de usuario, permisos, deploy  →  nivel 5 o no está hecho
+Plata, auth, datos de usuario, permisos, deploy, mensajes, backup,
+cron, integraciones externas                     →  nivel 5 o no está hecho
 Todo lo demás                                    →  nivel 4 alcanza
 ```
 

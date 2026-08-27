@@ -31,13 +31,23 @@ Del 0 al 2 se está confiando. Del 3 para arriba, comprobando.
 ## La regla
 
 ```
-Plata, auth, datos de usuario, permisos, deploy, mensajes, backup, cron
+Plata, auth, datos de usuario, permisos, deploy, mensajes, backup,
+cron, integraciones externas
     → nivel 5 o no está hecho
 Todo lo demás
     → nivel 4 alcanza
 ```
 
 **Cuanto más caro es equivocarse, más lejos del agente tiene que estar la prueba.**
+
+De esas diez categorías caras, el hook `Stop` detecta ocho solo mirando qué
+archivos tocó el turno: pago, auth, datos, permisos, deploy, mensajes,
+backup y tareas programadas. **Integraciones externas es nivel 5 también,
+pero no tiene una huella de archivo confiable** — puede vivir en cualquier
+módulo que llame a una API de terceros — así que el hook no la va a frenar
+solo. Ahí depende de que la persona la pida con `/proof`. Es un límite
+declarado, no un agujero: mejor un hook honesto sobre lo que no puede ver
+que uno que aparenta cubrir más de lo que cubre.
 
 ## Cómo se consigue cada prueba
 

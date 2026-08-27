@@ -6,7 +6,10 @@ La columna de la falsa prueba es el corazón pedagógico del plugin — no está
 para señalar que está mal, sino para mostrar por qué parece que está bien.
 
 Las diez categorías son **nivel 5**: hace falta un tercero sin interés que lo
-confirme (ver la escala en `SKILL.md`).
+confirme (ver la escala en `SKILL.md`). El hook `Stop` detecta ocho de las
+diez solo mirando archivos; la entrada 9 (integración externa) no tiene una
+huella de archivo confiable y hay que pedirla a mano con `/proof` — el
+porqué está en la sección "La regla" de `SKILL.md`.
 
 ---
 
@@ -200,8 +203,11 @@ cacheada de la anterior.
 # el dominio público responde, desde fuera de la máquina que hizo el deploy
 curl -sI https://<tu-dominio> | grep -i "^http\|last-modified\|etag"
 
-# comparar la versión servida contra la que se acaba de subir
+# si el proyecto expone un hash o número de versión visible en el HTML,
+# compararlo contra el de la build que se acaba de subir (adaptar el patrón:
+# la mayoría de los proyectos NO tienen esto por defecto, hay que agregarlo)
 curl -s https://<tu-dominio> | grep -o 'build-[a-f0-9]*'
+# si no lo tenés, el chequeo de arriba (Last-Modified/ETag nuevo) ya alcanza
 ```
 
 ---
