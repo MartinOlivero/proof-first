@@ -99,7 +99,7 @@ def decidir(raiz):
                     f"Estas actas quedaron vencidas porque cambiaron los archivos que "
                     f"cubrían:\n{lista}\n\n"
                     "Volvé a verificarlas con el subagente `witness` y actualizá el acta, "
-                    "o declara la deuda en PROOF.md con quién lo decidió."}
+                    "o declará la deuda en PROOF.md con quién lo decidió."}
 
     # 3. Categorias caras tocadas sin acta ni deuda declarada.
     caras = deteccion.clasificar(cambiados)
@@ -130,6 +130,34 @@ def decidir(raiz):
     return {"decision": "approve"}
 
 
+def segunda_vuelta(raiz):
+    """
+    Respuesta cuando este mismo hook ya bloqueo el turno y el agente volvio.
+
+    Es la invariante absoluta del plugin: un hook no puede dejar al usuario
+    encerrado. Si el agente no puede escribir PROOF.md —permisos, disco de solo
+    lectura, modo plan, un usuario que dice que no— sin esta salida el turno no
+    cierra nunca. Aprueba, pero deja escrito por que se aprobo, para que la
+    informacion no se pierda con el bloqueo levantado.
+    """
+    try:
+        decision = decidir(raiz)
+    except Exception as e:  # noqa: BLE001
+        decision = {"decision": "approve", "systemMessage": f"no se pudo evaluar: {e}"}
+
+    aviso = ("proof-first: ya frené este turno una vez y no lo vuelvo a frenar. "
+             "Cierra igual, pero esto quedó sin evidencia y sin deuda declarada")
+    pendiente = decision.get("reason") or decision.get("systemMessage") or ""
+    # Solo el primer parrafo: es el que nombra lo que falta. El resto del motivo
+    # son instrucciones para destrabar, y ya no hay nada trabado.
+    pendiente = pendiente.split("\n\n")[0].strip()
+    if decision.get("decision") == "block" and pendiente:
+        aviso += ":\n" + pendiente
+    else:
+        aviso += "."
+    return {"decision": "approve", "systemMessage": aviso}
+
+
 def main():
     # Windows usa cp1252 por defecto y no puede enviar acentos. Reconfigurar a UTF-8.
     try:
@@ -144,9 +172,14 @@ def main():
             entrada = {}
     except (json.JSONDecodeError, ValueError):
         entrada = {}
+    # cwd es lo que manda el harness; las otras dos son para correrlo a mano.
     raiz = entrada.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
     try:
+        # Anti-bucle (spec 6.3): si este hook ya bloqueo el turno, no bloquea otra vez.
+        if entrada.get("stop_hook_active"):
+            print(json.dumps(segunda_vuelta(raiz), ensure_ascii=False))
+            sys.exit(0)
         print(json.dumps(decidir(raiz), ensure_ascii=False))
     except Exception as e:  # noqa: BLE001
         # Un hook roto nunca puede trabar la sesion del usuario.
@@ -162,6 +195,8 @@ def _autotest():
 
     d = tempfile.mkdtemp()
     subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d, check=True)
     proof = os.path.join(d, "PROOF.md")
 
     # sin cambios: aprueba
@@ -172,10 +207,16 @@ def _autotest():
     open(os.path.join(d, "src", "estilos.css"), "w").write("body{}\n")
     assert decidir(d)["decision"] == "approve", decidir(d)
 
-    # un cambio caro sin acta: bloquea y nombra la categoria
+    # un cambio caro sin acta: bloquea y nombra la categoria.
+    # Se commitea la base primero: git colapsa una carpeta nueva entera en una
+    # sola linea ("?? src/auth/"), asi que un proyecto sin historia no muestra
+    # los archivos uno por uno. Con historia —el caso real— si.
     os.makedirs(os.path.join(d, "src", "auth"), exist_ok=True)
     ruta_auth = os.path.join(d, "src", "auth", "login.ts")
     open(ruta_auth, "w").write("export const login = () => {}\n")
+    subprocess.run(["git", "add", "."], cwd=d, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=d, check=True)
+    open(ruta_auth, "w").write("export const login = (u) => u\n")
     r = decidir(d)
     assert r["decision"] == "block", r
     assert "auth" in r["reason"].lower(), r["reason"]
@@ -217,6 +258,8 @@ def _autotest():
     # Fix 1: deuda declarada para path erroneo no cubre el path real (substring bug)
     d4 = tempfile.mkdtemp()
     subprocess.run(["git", "init", "-q"], cwd=d4, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d4, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d4, check=True)
     p4 = os.path.join(d4, "PROOF.md")
     # Declarar deuda para un path que CONTIENE el path real como substring
     cuaderno.agregar_deuda(p4, que="packages/legacy-vendor/src/auth/index.ts",
@@ -225,6 +268,9 @@ def _autotest():
     os.makedirs(os.path.join(d4, "src", "auth"), exist_ok=True)
     ruta_real = os.path.join(d4, "src", "auth", "index.ts")
     open(ruta_real, "w").write("export const auth = () => {}\n")
+    subprocess.run(["git", "add", "."], cwd=d4, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=d4, check=True)
+    open(ruta_real, "w").write("export const auth = (x) => x\n")
     r4 = decidir(d4)
     assert r4["decision"] == "block", f"Fix 1 failed: {r4}"
     assert "auth" in r4["reason"].lower(), f"Fix 1: no 'auth' in reason: {r4['reason']}"
@@ -235,7 +281,7 @@ def _autotest():
     r4b = decidir(d4)
     assert r4b["decision"] == "approve", f"Fix 1b escape valve failed: {r4b}"
 
-    # Fix 2: acta expirada no debe quedar enterrada si el cambio se comittea
+    # Fix 2: acta expirada no debe quedar enterrada si el cambio se commitea
     d5 = tempfile.mkdtemp()
     subprocess.run(["git", "init", "-q"], cwd=d5, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d5, check=True)
@@ -247,7 +293,7 @@ def _autotest():
     open(ruta_schema, "w").write("CREATE TABLE users (id INT)\n")
     # Commitear el archivo inicial primero
     subprocess.run(["git", "add", "."], cwd=d5, check=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=d5, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d5, check=True)
     # Crear acta para el archivo
     h5 = huella.calcular(["src/db/schema.sql"], d5)
     cuaderno.agregar_acta(p5, que="src/db/schema.sql", nivel=5, prueba="test exitoso",
@@ -260,8 +306,8 @@ def _autotest():
     assert "vencid" in r5a["reason"].lower(), f"Fix 2 pre-commit missing 'vencid': {r5a['reason']}"
     # Commitear el cambio
     subprocess.run(["git", "add", "src/db/schema.sql"], cwd=d5, check=True)
-    subprocess.run(["git", "commit", "-m", "update"], cwd=d5, check=True)
-    # Despues de commitear, el acta expirada SIGUE siendo bloqueante (no quedó enterrada)
+    subprocess.run(["git", "commit", "-q", "-m", "update"], cwd=d5, check=True)
+    # Despues de commitear, el acta expirada SIGUE siendo bloqueante (no quedo enterrada)
     r5b = decidir(d5)
     assert r5b["decision"] == "block", f"Fix 2 post-commit should block: {r5b}"
     assert "vencid" in r5b["reason"].lower(), f"Fix 2 post-commit missing 'vencid': {r5b['reason']}"
@@ -293,7 +339,7 @@ def _autotest():
     ruta_mig = os.path.join(d7, "src", "db", "migration.sql")
     open(ruta_mig, "w").write("ALTER TABLE users ADD column;\n")
     subprocess.run(["git", "add", "."], cwd=d7, check=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=d7, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d7, check=True)
     # Acta para el archivo
     h7 = huella.calcular(["src/db/migration.sql"], d7)
     cuaderno.agregar_acta(p7, que="src/db/migration.sql", nivel=5, prueba="tested",
@@ -301,7 +347,7 @@ def _autotest():
     # Cambiar y commitear
     open(ruta_mig, "w").write("ALTER TABLE users ADD column age INT;\n")
     subprocess.run(["git", "add", "src/db/migration.sql"], cwd=d7, check=True)
-    subprocess.run(["git", "commit", "-m", "update"], cwd=d7, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "update"], cwd=d7, check=True)
     # Acta should be expired, but declare debt for its que -> approve
     cuaderno.agregar_deuda(p7, que="src/db/migration.sql", motivo="revisado",
                            quien="Tincho", fecha="27/08")
@@ -317,8 +363,10 @@ def _autotest():
     os.makedirs(os.path.join(d8, "src", "db"), exist_ok=True)
     ruta_seed = os.path.join(d8, "src", "db", "seed.sql")
     open(ruta_seed, "w").write("INSERT INTO users VALUES (1, 'test');\n")
+    # el acta de abajo cubre los dos archivos: los dos tienen que existir
+    open(os.path.join(d8, "src", "db", "schema.sql"), "w").write("CREATE TABLE users (id INT)\n")
     subprocess.run(["git", "add", "."], cwd=d8, check=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=d8, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d8, check=True)
     # Acta que cubre dos archivos
     h8 = huella.calcular(["src/db/seed.sql", "src/db/schema.sql"], d8)
     cuaderno.agregar_acta(p8, que="src/db/setup", nivel=5, prueba="tested",
@@ -326,7 +374,7 @@ def _autotest():
     # Cambiar solo el seed
     open(ruta_seed, "w").write("INSERT INTO users VALUES (1, 'updated');\n")
     subprocess.run(["git", "add", "src/db/seed.sql"], cwd=d8, check=True)
-    subprocess.run(["git", "commit", "-m", "update"], cwd=d8, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "update"], cwd=d8, check=True)
     # Acta expired (seed changed), but declare debt for a path in cubre -> approve
     cuaderno.agregar_deuda(p8, que="src/db/seed.sql", motivo="seed update reviewed",
                            quien="Tincho", fecha="27/08")
@@ -346,7 +394,7 @@ def _autotest():
     open(ruta_auth, "w").write("export const login = () => {}\n")
     open(ruta_model, "w").write("model User {}\n")
     subprocess.run(["git", "add", "."], cwd=d9, check=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=d9, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=d9, check=True)
     # Two actas
     h9_auth = huella.calcular(["src/auth/login.ts"], d9)
     h9_model = huella.calcular(["src/db/model.prisma"], d9)
@@ -358,7 +406,7 @@ def _autotest():
     open(ruta_auth, "w").write("export const login = (x) => x\n")
     open(ruta_model, "w").write("model User {id Int}\n")
     subprocess.run(["git", "add", "."], cwd=d9, check=True)
-    subprocess.run(["git", "commit", "-m", "update"], cwd=d9, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "update"], cwd=d9, check=True)
     # Declare debt for only one of them
     cuaderno.agregar_deuda(p9, que="src/auth/login.ts", motivo="auth reviewed",
                            quien="Tincho", fecha="27/08")
@@ -367,6 +415,26 @@ def _autotest():
     assert r9["decision"] == "block", f"Round 2: uncovered acta should block: {r9}"
     assert "model.prisma" in r9["reason"], f"Round 2: should name uncovered acta: {r9['reason']}"
     assert "login.ts" not in r9["reason"], f"Round 2: should not name covered acta: {r9['reason']}"
+
+    # stop_hook_active: aprueba igual, pero nombra lo que quedo sin probar.
+    # Es la invariante: el hook nunca puede dejar el turno sin poder cerrar.
+    d10 = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=d10, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d10, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d10, check=True)
+    os.makedirs(os.path.join(d10, "src", "auth"), exist_ok=True)
+    ruta10 = os.path.join(d10, "src", "auth", "login.ts")
+    open(ruta10, "w").write("export const login = () => {}\n")
+    subprocess.run(["git", "add", "."], cwd=d10, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=d10, check=True)
+    open(ruta10, "w").write("export const login = (u) => u\n")
+    assert decidir(d10)["decision"] == "block", decidir(d10)
+    r10 = segunda_vuelta(d10)
+    assert r10["decision"] == "approve", r10
+    assert "src/auth/login.ts" in r10["systemMessage"], r10
+    # y en un proyecto sin nada pendiente tambien aprueba, sin inventar un motivo
+    r11 = segunda_vuelta(tempfile.mkdtemp())
+    assert r11["decision"] == "approve", r11
 
     print("stop_gate.py OK")
 

@@ -106,32 +106,62 @@ def clasificar(archivos):
     return resultado
 
 
-def cambios_sin_commitear(raiz):
-    """
-    Archivos modificados segun git, sin commitear.
-
-    Devuelve None si no hay git: es la senal de degradacion. El hook informa
-    pero no bloquea, porque sin git no puede saber que se toco.
-    """
+def _git(args, raiz):
+    """Corre git y devuelve stdout, o None si no hay git o el comando fallo."""
     try:
-        salida = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
-            cwd=raiz, capture_output=True, text=True, timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        salida = subprocess.run(["git"] + args, cwd=raiz,
+                                capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
     if salida.returncode != 0:
         return None
+    return salida.stdout
+
+
+def cambios_sin_commitear(raiz):
+    """
+    Archivos modificados segun git, sin commitear, relativos a `raiz`.
+
+    Devuelve None si no hay git: es la senal de degradacion. El hook informa
+    pero no bloquea, porque sin git no puede saber que se toco.
+
+    Dos cuidados que parecen detalles y no lo son:
+
+    - `--untracked-files=normal` (el default de git) y no `=all`. Con `=all`,
+      un proyecto sin .gitignore y con node_modules devuelve miles de rutas y
+      el hook bloquea en el primer turno por codigo que el usuario nunca toco.
+      El precio: una carpeta nueva entera aparece colapsada ("src/auth/") en
+      vez de archivo por archivo. Se prefiere eso a un bloqueo fantasma.
+    - git imprime las rutas relativas a la raiz del REPO, no al directorio de
+      la sesion. En un monorepo trabajando en apps/web, sin traducirlas el
+      hook nombraria los paquetes hermanos y la huella se calcularia sobre
+      rutas que no existen desde ahi. Por eso se traducen contra `raiz` y lo
+      que cae afuera se descarta.
+    """
+    salida = _git(["status", "--porcelain", "--untracked-files=normal"], raiz)
+    if salida is None:
+        return None
+    techo = _git(["rev-parse", "--show-toplevel"], raiz)
+    if techo is None:
+        return None
+    # realpath en los dos lados: en macOS /var y /private/var son el mismo lugar
+    # y git devuelve uno mientras la sesion usa el otro. Sin esto, todo cae afuera.
+    techo = os.path.realpath(techo.strip())
+    base = os.path.realpath(raiz)
 
     archivos = []
-    for linea in salida.stdout.splitlines():
+    for linea in salida.splitlines():
         if len(linea) < 4:
             continue
         ruta = linea[3:].strip().strip('"')
         # git muestra los renombrados como "viejo -> nuevo"; nos interesa el nuevo
         if " -> " in ruta:
             ruta = ruta.split(" -> ", 1)[1]
-        archivos.append(ruta)
+        rel = os.path.relpath(os.path.join(techo, ruta), base)
+        # Lo que quedo fuera del directorio de la sesion no es asunto de este turno.
+        if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+            continue
+        archivos.append(rel)
     return archivos
 
 
@@ -161,6 +191,33 @@ def _autotest():
     subprocess.run(["git", "init", "-q"], cwd=d, check=True)
     open(os.path.join(d, "nuevo.py"), "w").write("x = 1\n")
     assert cambios_sin_commitear(d) == ["nuevo.py"], cambios_sin_commitear(d)
+
+    # monorepo: desde apps/web solo se ven sus propios cambios, y relativos a ahi
+    m = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=m, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=m, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=m, check=True)
+    web = os.path.join(m, "apps", "web", "src")
+    api = os.path.join(m, "apps", "api", "src")
+    os.makedirs(web); os.makedirs(api)
+    open(os.path.join(web, "login.ts"), "w").write("a\n")
+    open(os.path.join(api, "pagos.ts"), "w").write("b\n")
+    subprocess.run(["git", "add", "."], cwd=m, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=m, check=True)
+    open(os.path.join(web, "login.ts"), "w").write("a2\n")
+    open(os.path.join(api, "pagos.ts"), "w").write("b2\n")
+    desde_web = cambios_sin_commitear(os.path.join(m, "apps", "web"))
+    assert desde_web == ["src/login.ts"], desde_web
+    # y desde la raiz del repo se ven los dos, con el prefijo entero
+    desde_raiz = sorted(cambios_sin_commitear(m))
+    assert desde_raiz == ["apps/api/src/pagos.ts", "apps/web/src/login.ts"], desde_raiz
+
+    # node_modules entero cae como una sola ruta colapsada, no como miles
+    n = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=n, check=True)
+    os.makedirs(os.path.join(n, "node_modules", "stripe"))
+    open(os.path.join(n, "node_modules", "stripe", "index.js"), "w").write("x\n")
+    assert cambios_sin_commitear(n) == ["node_modules"], cambios_sin_commitear(n)
 
     # falsos positivos: "rol" no debe matching en "controller", "acl" en "oracle", etc.
     assert clasificar(["src/controllers/user_controller.py"]) == {}, "controller no es rol"

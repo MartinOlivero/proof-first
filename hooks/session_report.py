@@ -12,6 +12,7 @@ algo queda afuera, la ultima linea dice cuantos no entraron.
 Salida: JSON con systemMessage, o nada si no hay cuaderno.
 """
 
+import datetime
 import json
 import os
 import sys
@@ -22,6 +23,25 @@ import cuaderno  # noqa: E402
 import huella  # noqa: E402
 
 MAX_ITEMS = 4  # ponytail: changed to total budget, not per-category
+
+
+def _fecha_vencimiento(acta, raiz):
+    """
+    Cuando dejo de valer un acta: el ultimo cambio de los archivos que cubria.
+
+    No hay un registro del momento exacto, pero el mtime del archivo que la
+    invalido es esa fecha. Si no se puede leer, se omite: mejor sin fecha que
+    con una inventada.
+    """
+    marcas = []
+    for rel in acta.get("cubre", []):
+        try:
+            marcas.append(os.path.getmtime(os.path.join(raiz, rel)))
+        except OSError:
+            continue
+    if not marcas:
+        return None
+    return datetime.date.fromtimestamp(max(marcas)).strftime("%d/%m")
 
 
 def resumen(raiz):
@@ -45,9 +65,15 @@ def resumen(raiz):
         items.append(f"🔴 {b}")
     for s in datos["sin_probar"]:
         items.append(f"⚠️ {s}")
+    # Lo abierto va despues de las deudas: si nadie lo lee aca, no lo lee nadie.
+    for ab in datos["abierto"]:
+        items.append(f"⬜ {ab}")
     if fuera:
-        nombres = ", ".join(a["que"] for a in fuera)
-        items.append(f"↺ volver a probar: {nombres}")
+        nombres = []
+        for a in fuera:
+            cuando = _fecha_vencimiento(a, raiz)
+            nombres.append(f"{a['que']} (venció el {cuando})" if cuando else a["que"])
+        items.append(f"↺ volver a probar: {', '.join(nombres)}")
 
     # Budget: 5 lines total, 1 is header, so 4 for items
     if len(items) <= MAX_ITEMS:
@@ -112,10 +138,19 @@ def _autotest():
     assert "1 acta" in r, r
     assert "vencida" not in r, r
 
-    # si el archivo cambia, la reporta vencida
+    # si el archivo cambia, la reporta vencida y con la fecha en que dejo de valer
     open(os.path.join(d, "a.py"), "w").write("x=2\n")
     r2 = resumen(d)
     assert "1 vencida" in r2, r2
+    import datetime as _dt
+    assert f"venció el {_dt.date.today().strftime('%d/%m')}" in r2, r2
+
+    # lo que esta en ABIERTO tambien se ve: si no se muestra aca, no lo lee nadie
+    datos_ab = cuaderno.leer(proof)
+    datos_ab["abierto"].append("Recuperar contraseña")
+    cuaderno.escribir(proof, datos_ab)
+    r_ab = resumen(d)
+    assert "⬜" in r_ab and "Recuperar contraseña" in r_ab, r_ab
 
     # bloqueantes y deudas aparecen con su emoji
     datos = cuaderno.leer(proof)

@@ -9,6 +9,10 @@ markdown a mano.
 El archivo tiene que ser legible por una persona (lo abre Tincho, lo ve un
 cliente en un diff de git) y parseable por una maquina. Por eso markdown con
 secciones fijas y no JSON.
+
+Tambien es la puerta de entrada por linea de comandos: el testigo no tiene
+permiso de Write, asi que la unica forma que tiene de labrar un acta es
+correr este archivo. Ver `agents/witness.md`.
 """
 
 import os
@@ -21,28 +25,12 @@ SECCIONES = [
     ("postergado", "## ⏸️ POSTERGADO"),
 ]
 
-PLANTILLA = """# PROOF
-
-Cuaderno de obra. Lo vivo arriba, lo probado plegado abajo.
-Generado y mantenido por proof-first.
-
-## 🔴 BLOQUEANTE
-
-## ⬜ ABIERTO
-
-## ⚠️ HECHO SIN PROBAR
-
-## ⏸️ POSTERGADO
-
-<details>
-<summary>▸ PROBADO (0)</summary>
-
-</details>
-"""
-
 # Un acta ocupa tres lineas. Se parsea con estas dos expresiones.
 _RE_ACTA = re.compile(r"^✅ (?P<fecha>[^ ]+) · (?P<que>.+?) · nivel (?P<nivel>\d+)$")
 _RE_CUBRE = re.compile(r"^\s+cubre: (?P<cubre>.*?) · huella: (?P<huella>\S*)$")
+
+# Caracteres que convierten una entrada de `cubre` en un patron y no en un archivo.
+_COMODINES = "*?["
 
 
 def _vacio():
@@ -126,7 +114,34 @@ def escribir(ruta, datos):
         f.write("\n".join(partes) + "\n")
 
 
+def _validar_cubre(raiz, cubre):
+    """
+    Cada entrada de `cubre` tiene que ser un archivo real.
+
+    Por que corta fuerte: la huella de un glob o de un directorio no se puede
+    calcular, cae al valor constante `<ausente>` y el acta queda certificando
+    para siempre. Un acta que nunca vence es exactamente la falsa prueba que
+    este plugin existe para atrapar, y falla en silencio. Mejor ruidoso.
+    """
+    for entrada in cubre:
+        if any(c in entrada for c in _COMODINES):
+            raise ValueError(
+                f"cubre: «{entrada}» tiene un comodín. Un acta con glob nunca "
+                "vencería: poné los archivos uno por uno.")
+        completa = os.path.join(raiz, entrada)
+        if os.path.isdir(completa):
+            raise ValueError(
+                f"cubre: «{entrada}» es un directorio. Un acta sobre un directorio "
+                "nunca vencería: poné los archivos uno por uno.")
+        if not os.path.isfile(completa):
+            raise ValueError(
+                f"cubre: «{entrada}» no existe (buscado en {raiz}). Un acta sobre "
+                "una ruta inexistente nunca vencería: revisá la ruta, que va "
+                "relativa a la raíz del proyecto.")
+
+
 def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
+    _validar_cubre(os.path.dirname(os.path.abspath(ruta)), cubre)
     datos = leer(ruta)
     # Un acta nueva sobre lo mismo reemplaza a la anterior: el cuaderno no acumula.
     datos["actas"] = [a for a in datos["actas"] if a["que"] != que]
@@ -145,8 +160,95 @@ def agregar_deuda(ruta, que, motivo, quien, fecha):
     escribir(ruta, datos)
 
 
+# ---------------------------------------------------------------- linea de comandos
+
+
+def _hoy():
+    import datetime
+    return datetime.date.today().strftime("%d/%m")
+
+
+def _cli(argv):
+    """
+    Puerta de entrada por consola. El testigo no puede escribir archivos: esto
+    es lo unico que corre para dejar el acta. Por eso el path de PROOF.md se
+    recibe entero, absoluto, y no se adivina desde el directorio actual.
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="cuaderno.py",
+        description="Lee y escribe PROOF.md, el cuaderno de obra de proof-first.")
+    p.add_argument("--autotest", action="store_true",
+                   help="corre los chequeos internos y sale")
+    sub = p.add_subparsers(dest="comando")
+
+    pa = sub.add_parser("acta", help="registra un acta de algo probado")
+    pa.add_argument("proof", help="ruta (absoluta) a PROOF.md")
+    pa.add_argument("--que", required=True, help="qué se probó")
+    pa.add_argument("--nivel", required=True, type=int, help="nivel de evidencia alcanzado (0-6)")
+    pa.add_argument("--prueba", required=True, help="la coordenada de la prueba, no una copia")
+    pa.add_argument("--cubre", default="",
+                    help="archivos separados por coma, relativos a la raíz del proyecto. "
+                         "Vacío si la prueba no cuelga de ningún archivo (el acta no vence).")
+    pa.add_argument("--huella", default=None,
+                    help="por defecto se calcula sobre --cubre; casi nunca hace falta pasarla")
+    pa.add_argument("--fecha", default=None, help="dd/mm (por defecto, hoy)")
+
+    pd = sub.add_parser("deuda", help="registra algo hecho sin probar, con quién lo decidió")
+    pd.add_argument("proof", help="ruta (absoluta) a PROOF.md")
+    pd.add_argument("--que", required=True, help="qué quedó sin probar")
+    pd.add_argument("--motivo", required=True, help="por qué no se probó")
+    pd.add_argument("--quien", required=True, help="quién asumió la deuda")
+    pd.add_argument("--fecha", default=None, help="dd/mm (por defecto, hoy)")
+
+    args = p.parse_args(argv)
+
+    if args.autotest or args.comando is None:
+        _autotest()
+        return 0
+
+    try:
+        return _ejecutar(args)
+    except ValueError as e:
+        # Un cubre invalido no es un bug: es alguien pasando un glob o un
+        # directorio. Se avisa en una linea, sin traceback, y no se escribe nada.
+        import sys
+        print(f"proof-first: {e}", file=sys.stderr)
+        return 2
+
+
+def _ejecutar(args):
+    """Hace el trabajo de _cli una vez parseados los argumentos."""
+    proof = os.path.abspath(args.proof)
+    fecha = args.fecha or _hoy()
+
+    if args.comando == "deuda":
+        agregar_deuda(proof, que=args.que, motivo=args.motivo,
+                      quien=args.quien, fecha=fecha)
+        print(f"deuda registrada en {proof}: {args.que} — asumida por {args.quien} {fecha}")
+        return 0
+
+    cubre = [c.strip() for c in args.cubre.split(",") if c.strip()]
+    huella_valor = args.huella
+    if huella_valor is None:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import huella as _huella  # noqa: E402
+        _validar_cubre(os.path.dirname(proof), cubre)
+        huella_valor = _huella.calcular(cubre, os.path.dirname(proof))
+    agregar_acta(proof, que=args.que, nivel=args.nivel, prueba=args.prueba,
+                 cubre=cubre, huella=huella_valor, fecha=fecha)
+    print(f"acta escrita en {proof}: {args.que} · nivel {args.nivel} · "
+          f"cubre {len(cubre)} archivo(s) · huella {huella_valor}")
+    return 0
+
+
 def _autotest():
-    import tempfile, os
+    import subprocess
+    import sys
+    import tempfile
+
     d = tempfile.mkdtemp()
     ruta = os.path.join(d, "PROOF.md")
 
@@ -156,6 +258,8 @@ def _autotest():
     assert vacio["bloqueante"] == [], vacio
 
     # un acta ida y vuelta conserva todos sus campos
+    os.makedirs(os.path.join(d, "src", "auth"), exist_ok=True)
+    open(os.path.join(d, "src", "auth", "sesion.ts"), "w").write("export const s = 1\n")
     agregar_acta(ruta, que="Login con Google", nivel=5,
                  prueba="user_id 8814 en Auth0 · anonimo rechazado 401",
                  cubre=["src/auth/sesion.ts"], huella="a3f9c1", fecha="27/08")
@@ -184,6 +288,35 @@ def _autotest():
     a_dns = [a for a in d3["actas"] if a["que"] == "El DNS resuelve"][0]
     assert a_dns["cubre"] == [], a_dns
 
+    # un glob en cubre se rechaza: daria un acta que no vence nunca
+    try:
+        agregar_acta(ruta, que="Auth entera", nivel=5, prueba="401 sin token",
+                     cubre=["src/auth/*.ts"], huella="ffffff", fecha="27/08")
+        raise AssertionError("un glob en cubre tenia que ser rechazado")
+    except ValueError as e:
+        assert "src/auth/*.ts" in str(e), e
+        assert "comod" in str(e), e
+
+    # un directorio en cubre, tambien
+    try:
+        agregar_acta(ruta, que="Auth entera", nivel=5, prueba="401 sin token",
+                     cubre=["src/auth"], huella="ffffff", fecha="27/08")
+        raise AssertionError("un directorio en cubre tenia que ser rechazado")
+    except ValueError as e:
+        assert "src/auth" in str(e), e
+        assert "directorio" in str(e), e
+
+    # una ruta que no existe, tambien
+    try:
+        agregar_acta(ruta, que="Fantasma", nivel=5, prueba="x",
+                     cubre=["src/no_existe.ts"], huella="ffffff", fecha="27/08")
+        raise AssertionError("una ruta inexistente tenia que ser rechazada")
+    except ValueError as e:
+        assert "no_existe.ts" in str(e), e
+
+    # el acta rechazada no dejo rastro
+    assert len(leer(ruta)["actas"]) == 2, leer(ruta)["actas"]
+
     # deuda con prefijo comun: "Pago" y "Pago Stripe" son casos distintos
     d = tempfile.mkdtemp()
     ruta2 = os.path.join(d, "PROOF.md")
@@ -197,8 +330,46 @@ def _autotest():
     assert len(d5["sin_probar"]) == 1, d5["sin_probar"]
     assert "Pago Stripe" in d5["sin_probar"][0], d5["sin_probar"]
 
+    # la CLI: es el unico camino que tiene el testigo, asi que se prueba corriendola
+    d6 = tempfile.mkdtemp()
+    ruta3 = os.path.join(d6, "PROOF.md")
+    open(os.path.join(d6, "pago.ts"), "w").write("export const cobrar = () => {}\n")
+    yo = os.path.abspath(__file__)
+    # desde OTRO directorio, con ruta absoluta: asi lo corre el testigo
+    r = subprocess.run([sys.executable, yo, "acta", ruta3, "--que", "El cobro cobra",
+                        "--nivel", "5", "--prueba", "charge ch_3Ab · webhook 200",
+                        "--cubre", "pago.ts", "--fecha", "27/08"],
+                       cwd=tempfile.mkdtemp(), capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "acta escrita" in r.stdout, r.stdout
+    leido = leer(ruta3)
+    assert len(leido["actas"]) == 1, leido["actas"]
+    assert leido["actas"][0]["que"] == "El cobro cobra", leido["actas"][0]
+    assert leido["actas"][0]["cubre"] == ["pago.ts"], leido["actas"][0]
+    # la huella la calculo sola, y es la de huella.py sobre ese archivo
+    sys.path.insert(0, os.path.dirname(yo))
+    import huella as _h
+    assert leido["actas"][0]["huella"] == _h.calcular(["pago.ts"], d6), leido["actas"][0]
+
+    # la CLI tambien registra deudas
+    r2 = subprocess.run([sys.executable, yo, "deuda", ruta3, "--que", "Backup",
+                         "--motivo", "no hay entorno para restaurar",
+                         "--quien", "Tincho", "--fecha", "27/08"],
+                        cwd=tempfile.mkdtemp(), capture_output=True, text=True)
+    assert r2.returncode == 0, (r2.stdout, r2.stderr)
+    assert "deuda registrada" in r2.stdout, r2.stdout
+    assert "Backup" in leer(ruta3)["sin_probar"][0], leer(ruta3)["sin_probar"]
+
+    # la CLI corta con un glob, y no escribe nada
+    r3 = subprocess.run([sys.executable, yo, "acta", ruta3, "--que", "Auth",
+                         "--nivel", "5", "--prueba", "x", "--cubre", "src/*.ts"],
+                        cwd=tempfile.mkdtemp(), capture_output=True, text=True)
+    assert r3.returncode != 0, r3.stdout
+    assert len(leer(ruta3)["actas"]) == 1, leer(ruta3)["actas"]
+
     print("cuaderno.py OK")
 
 
 if __name__ == "__main__":
-    _autotest()
+    import sys
+    raise SystemExit(_cli(sys.argv[1:]))
