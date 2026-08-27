@@ -26,17 +26,30 @@ import deteccion  # noqa: E402
 import huella  # noqa: E402
 
 
-def _cubierto(nombre, datos):
+def _cubierto(nombre, datos, expired_set=None):
     """Un archivo esta cubierto si tiene acta o si su deuda ya fue declarada."""
+    if expired_set is None:
+        expired_set = set()
+
     for a in datos["actas"]:
+        # No contar actas expiradas como cobertura.
+        if a["que"] in expired_set:
+            continue
         if nombre == a["que"] or nombre in a["cubre"]:
             return True
+
     for d in datos["sin_probar"]:
-        if nombre in d:
+        # Extraer el que (path) antes del primer separador " — ".
+        que = d.split(" — ")[0] if " — " in d else d
+        if nombre == que:
             return True
+
     for p in datos["postergado"]:
-        if nombre in p:
+        # Extraer el que (path) antes del primer separador " — ".
+        que = p.split(" — ")[0] if " — " in p else p
+        if nombre == que:
             return True
+
     return False
 
 
@@ -45,34 +58,44 @@ def decidir(raiz):
     datos = cuaderno.leer(proof)
 
     # 1. Un bloqueante abierto frena todo, haya o no cambios.
+    # Esto se evalua antes del git check porque un bloqueante es una decision
+    # deliberada de una persona, no una inferencia sobre lo que cambio.
     if datos["bloqueante"]:
         lista = "\n".join(f"  · {b}" for b in datos["bloqueante"])
         return {"decision": "block", "reason":
                 f"Hay algo bloqueante sin resolver en PROOF.md:\n{lista}\n\n"
-                "Resolvelo con el usuario antes de cerrar, o movelo a POSTERGADO "
-                "dejando escrito quien lo decidio."}
+                "Resolvé con el usuario antes de cerrar, o movelo a POSTERGADO "
+                "dejando escrito quién lo decidió."}
 
     cambiados = deteccion.cambios_sin_commitear(raiz)
     if cambiados is None:
         # Sin git no se puede saber que se toco. Degradacion: nunca bloquea.
         return {"decision": "approve"}
 
-    # 2. Actas vencidas por cambios en los archivos que cubrian.
-    afectadas = [a for a in huella.vencidas(datos["actas"], raiz)
-                 if any(c in cambiados for c in a["cubre"])]
-    if afectadas:
-        lista = "\n".join(f"  · {a['que']} (cubria {', '.join(a['cubre'])})" for a in afectadas)
+    # Computar el conjunto de actas vencidas que cubren codigo caro.
+    todas_vencidas = huella.vencidas(datos["actas"], raiz)
+    expired_set = set()
+    for a in todas_vencidas:
+        caras_cubierto = deteccion.clasificar(a["cubre"])
+        if caras_cubierto:
+            expired_set.add(a["que"])
+
+    # 2. Actas vencidas que cubren codigo caro deben ser reportadas.
+    # Aun si la deuda se paso a postergado (si cambio fue committeado).
+    if expired_set:
+        afectadas = [a for a in todas_vencidas if a["que"] in expired_set]
+        lista = "\n".join(f"  · {a['que']} (cubría {', '.join(a['cubre'])})" for a in afectadas)
         return {"decision": "block", "reason":
                 f"Estas actas quedaron vencidas porque cambiaron los archivos que "
-                f"cubrian:\n{lista}\n\n"
-                "Volve a verificarlas con el subagente `witness` y actualiza el acta, "
-                "o declara la deuda en PROOF.md con quien lo decidio."}
+                f"cubrían:\n{lista}\n\n"
+                "Volvé a verificarlas con el subagente `witness` y actualiza el acta, "
+                "o declara la deuda en PROOF.md con quién lo decidió."}
 
     # 3. Categorias caras tocadas sin acta ni deuda declarada.
     caras = deteccion.clasificar(cambiados)
     pendientes = {}
     for clave, archivos in caras.items():
-        sueltos = [f for f in archivos if not _cubierto(f, datos)]
+        sueltos = [f for f in archivos if not _cubierto(f, datos, expired_set)]
         if sueltos:
             pendientes[clave] = sueltos
 
@@ -83,15 +106,15 @@ def decidir(raiz):
             detalle.append(f"  · {cat['nombre']} (nivel {cat['nivel']}): "
                            f"{', '.join(archivos)}")
         return {"decision": "block", "reason":
-                "Se toco codigo caro sin evidencia observable desde afuera:\n"
+                "Se tocó código caro sin evidencia observable desde afuera:\n"
                 + "\n".join(detalle) + "\n\n"
-                "Nivel 5 significa que un tercero sin interes lo confirma: el cargo en "
-                "el panel del proveedor, el mail que llego de verdad, el 401 sin token. "
+                "Nivel 5 significa que un tercero sin interés lo confirma: el cargo en "
+                "el panel del proveedor, el mail que llegó de verdad, el 401 sin token. "
                 "Un test propio no alcanza.\n\n"
                 "Opciones:\n"
-                "1. Lanza el subagente `witness` para conseguir la prueba y escribir el "
+                "1. Lanzá el subagente `witness` para conseguir la prueba y escribir el "
                 "acta en PROOF.md.\n"
-                "2. Si el usuario decide seguir sin probar, registra la deuda en PROOF.md "
+                "2. Si el usuario decide seguir sin probar, registrá la deuda en PROOF.md "
                 "con su nombre y la fecha. Declararla alcanza para cerrar."}
 
     return {"decision": "approve"}
@@ -106,6 +129,9 @@ def main():
 
     try:
         entrada = json.load(sys.stdin)
+        # Si el JSON no es un objeto (ej: array), tratar como entrada vacia.
+        if not isinstance(entrada, dict):
+            entrada = {}
     except (json.JSONDecodeError, ValueError):
         entrada = {}
     raiz = entrada.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
@@ -177,6 +203,71 @@ def _autotest():
     # sin git no bloquea nunca: degradacion
     d3 = tempfile.mkdtemp()
     assert decidir(d3)["decision"] == "approve"
+
+    # Fix 1: deuda declarada para path erroneo no cubre el path real (substring bug)
+    d4 = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=d4, check=True)
+    p4 = os.path.join(d4, "PROOF.md")
+    # Declarar deuda para un path que CONTIENE el path real como substring
+    cuaderno.agregar_deuda(p4, que="packages/legacy-vendor/src/auth/index.ts",
+                           motivo="vendor legacy, no se toca", quien="Tincho", fecha="27/08")
+    # Pero el cambio real es en un path diferente que es substring del declarado
+    os.makedirs(os.path.join(d4, "src", "auth"), exist_ok=True)
+    ruta_real = os.path.join(d4, "src", "auth", "index.ts")
+    open(ruta_real, "w").write("export const auth = () => {}\n")
+    r4 = decidir(d4)
+    assert r4["decision"] == "block", f"Fix 1 failed: {r4}"
+    assert "auth" in r4["reason"].lower(), f"Fix 1: no 'auth' in reason: {r4['reason']}"
+
+    # Fix 1b: pero si se declara la deuda exacta, si aprueba (escape valve funciona)
+    cuaderno.agregar_deuda(p4, que="src/auth/index.ts", motivo="cambio menor",
+                           quien="Tincho", fecha="27/08")
+    r4b = decidir(d4)
+    assert r4b["decision"] == "approve", f"Fix 1b escape valve failed: {r4b}"
+
+    # Fix 2: acta expirada no debe quedar enterrada si el cambio se comittea
+    d5 = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=d5, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d5, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d5, check=True)
+    p5 = os.path.join(d5, "PROOF.md")
+    os.makedirs(os.path.join(d5, "src", "db"), exist_ok=True)
+    # Usar archivo que matchea patron "schema" (categoria datos, nivel 5)
+    ruta_schema = os.path.join(d5, "src", "db", "schema.sql")
+    open(ruta_schema, "w").write("CREATE TABLE users (id INT)\n")
+    # Commitear el archivo inicial primero
+    subprocess.run(["git", "add", "."], cwd=d5, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=d5, check=True)
+    # Crear acta para el archivo
+    h5 = huella.calcular(["src/db/schema.sql"], d5)
+    cuaderno.agregar_acta(p5, que="src/db/schema.sql", nivel=5, prueba="test exitoso",
+                          cubre=["src/db/schema.sql"], huella=h5, fecha="27/08")
+    # Cambiar el archivo
+    open(ruta_schema, "w").write("CREATE TABLE users (id INT, name VARCHAR(100))\n")
+    # Sin commitear, debe bloquear
+    r5a = decidir(d5)
+    assert r5a["decision"] == "block", f"Fix 2 pre-commit should block: {r5a}"
+    assert "vencid" in r5a["reason"].lower(), f"Fix 2 pre-commit missing 'vencid': {r5a['reason']}"
+    # Commitear el cambio
+    subprocess.run(["git", "add", "src/db/schema.sql"], cwd=d5, check=True)
+    subprocess.run(["git", "commit", "-m", "update"], cwd=d5, check=True)
+    # Despues de commitear, el acta expirada SIGUE siendo bloqueante (no quedó enterrada)
+    r5b = decidir(d5)
+    assert r5b["decision"] == "block", f"Fix 2 post-commit should block: {r5b}"
+    assert "vencid" in r5b["reason"].lower(), f"Fix 2 post-commit missing 'vencid': {r5b['reason']}"
+
+    # Fix 3: JSON no-dict no debe crashear (debe aprobar gracefully)
+    # Este test esta en el e2e, aca solo verificamos que _cubierto y decidir no lo usan
+
+    # Ruling 1: bloqueante sin git debe bloquear (bloqueante es independiente de git)
+    d6 = tempfile.mkdtemp()
+    p6 = os.path.join(d6, "PROOF.md")
+    datos6 = cuaderno.leer(p6)
+    datos6["bloqueante"].append("Falta revisar algo")
+    cuaderno.escribir(p6, datos6)
+    r6 = decidir(d6)
+    assert r6["decision"] == "block", f"Ruling 1 (no git + bloqueante) failed: {r6}"
+    assert "algo" in r6["reason"], f"Ruling 1: no bloqueante text in reason: {r6['reason']}"
 
     print("stop_gate.py OK")
 
