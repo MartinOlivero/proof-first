@@ -33,6 +33,18 @@ contexto de cómo se construyó el código, con la consigna invertida
 puede escribir es el acta, corriendo el comando `lib/cuaderno.py` que le llega
 con su ruta absoluta en el prompt.
 
+**Si el cambio se commitea antes de que cierre el turno, el hook deja de
+verlo**: el detector lee `git status`, así que lo ya commiteado sale de su
+vista y aprueba. En el flujo normal no muerde —el hook corre antes de que el
+turno cierre, y el commit viene después—, pero un agente al que se le pide
+commitear a mitad de camino saca ese código del alcance del control. Un acta
+que ya cubría el archivo **sí** sigue venciendo bien después del commit: la
+huella se recalcula del archivo, esté commiteado o no. El hueco es solo para
+código caro que nunca tuvo acta. Taparlo requiere guardar el `HEAD` al abrir la
+sesión para que `Stop` compare contra eso: es trabajo de v1.1 decidido a
+propósito, y está anotado como `⏸️ POSTERGADO` en `PROOF.md`, no dado por
+supuesto.
+
 **Sin git, el hook nunca bloquea *por código detectado*: aprueba siempre**,
 porque no puede saber qué archivo se tocó — pero un 🔴 BLOQUEANTE escrito a
 mano en `PROOF.md` frena igual, con o sin git, porque esa es una decisión de
@@ -183,6 +195,17 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
   because that's a person's decision, not an inference from a diff. This is
   a deliberate trade-off: a false approve on undetectable changes is
   recoverable, a false block on a project the hook can't reason about isn't.
+- **A commit mid-turn hides the change:** the detector reads `git status`, so
+  an expensive change that gets committed before the turn closes is no longer
+  in its view and the hook approves. In the normal flow this doesn't bite —
+  the hook runs before the turn ends and committing comes after — but an agent
+  asked to commit halfway through takes that code out of the gate's sight. An
+  *acta* that already covers the file still expires correctly after a commit,
+  because the fingerprint is recomputed from the file itself, committed or
+  not; the gap is only for expensive code that never had an acta. Closing it
+  means recording `HEAD` at session start so `Stop` can diff against it —
+  deliberate future work (v1.1), not an oversight, and written down in
+  `PROOF.md` as postponed rather than left implied.
 - **A first block that feels wrong:** the detector matches file *paths*
   against broad patterns — `models`, `job`, `schedule`, `token` — so an
   ordinary file can trip it (`src/models/Button.tsx`, `lib/job-queue-ui.ts`).

@@ -13,6 +13,7 @@ Generado y mantenido por proof-first.
 - hooks/session_report.py — el detector lo marca como auth por el token 'session' en el nombre (falso positivo de su propio catálogo); su evidencia son sus autochequeos, nivel 3, y no hay nivel 5 posible para un parte de arranque — deuda asumida por el implementador de la ronda de arreglos previa al merge 27/08
 
 ## ⏸️ POSTERGADO
+- Ver el código caro que ya se commiteó dentro del mismo turno — hoy el detector lee `git status`, así que un cambio caro commiteado a mitad de turno sale de su vista y el hook aprueba. Un acta que ya cubría ese archivo SÍ sigue venciendo bien: la huella se recalcula del archivo, commiteado o no. El hueco es solo para código caro que nunca tuvo acta. Taparlo pide guardar el HEAD en SessionStart para que Stop compare contra eso: es diseño nuevo, no una corrección — postergado a v1.1 por decisión del controlador, 27/08
 
 <details>
 <summary>▸ PROBADO (2)</summary>
