@@ -126,7 +126,7 @@ Notas:
   figura como antipatrón en el README de `saas-builder`.
 - El catálogo será extensible por proyecto mediante un archivo opcional
   `.proof-catalog.md` en la raíz, que agrega o pisa filas. Diseñado acá,
-  **implementado en v1.1** (ver §13): en v1 las diez filas son fijas.
+  **implementado en v1.1** (ver §14): en v1 las diez filas son fijas.
 
 ---
 
@@ -141,6 +141,10 @@ agente lee para saber qué nivel corresponde y cómo se consigue cada prueba.
 
 Se activa cuando el trabajo toca alguna de las diez categorías, o cuando el
 usuario pregunta cómo verificar algo.
+
+**Debe funcionar sin los hooks.** La skill es autosuficiente: contiene todo el
+criterio. Los hooks solo agregan obligatoriedad. Sin ellos se pierde el capataz,
+nunca el método. Ver §12.
 
 ### 6.2 El verificador — `the witness`
 
@@ -386,7 +390,7 @@ the witness (contexto limpio, consigna invertida, sin manos)
 | **`legal-docs`** (propio) | Ya aplica el principio en su dominio: *"reads the code first, and refuses to write what it can't verify"*. Es la prueba de concepto de PFD antes de que PFD tuviera nombre. Sin cambios. |
 | **Superpowers** | Complementario. Aporta proceso (brainstorming, TDD, debugging). PFD no lo duplica; solo señala que su TDD es nivel 2 y necesita compañía cuando hay plata de por medio. |
 | **RDD / gentle-ai** | Complementario, no competidor. RDD revisa el código congelado (nivel 3 muy elaborado); PFD sale del código a buscar el artefacto del tercero (nivel 5). Dos etapas distintas de la misma cadena. |
-| **engram** | Complementario. Engram es el histórico buscable entre sesiones y proyectos; `PROOF.md` es el estado presente de este proyecto, versionado. Si engram está instalado, el sedimento (§12) puede ir también ahí. **No se implementa en v1**: se documenta el puente y se escribe el día que alguien lo pida. |
+| **engram** | Complementario. Engram es el histórico buscable entre sesiones y proyectos; `PROOF.md` es el estado presente de este proyecto, versionado. Si engram está instalado, el sedimento (§11) puede ir también ahí. **No se implementa en v1**: se documenta el puente y se escribe el día que alguien lo pida. |
 | **`CLAUDE.md`** | El manual de la casa (lo estable). `PROOF.md` es el cuaderno de obra (lo vivo). Ritmos distintos, archivos distintos. |
 
 ### El sedimento
@@ -401,7 +405,57 @@ automática.
 
 ---
 
-## 12. Cómo se prueba el propio plugin
+## 12. Portabilidad entre CLIs y modelos
+
+PFD tiene que sobrevivir al CLI donde nació. El criterio lo resume bien Alan
+Buscaglia en su charla sobre gentle-ai, hablando de por qué su stack funciona en
+cualquier modelo: *"funciona para todos los modelos porque es un prompt"*.
+
+### Qué es portable y qué no
+
+| Pieza | Qué es en realidad | Portabilidad |
+|---|---|---|
+| La escala (§4) | Markdown | Cualquier modelo, cualquier CLI |
+| El catálogo (§5) | Markdown | Cualquier modelo, cualquier CLI |
+| `the witness` (§6.2) | Un prompt con reglas | Cualquier modelo capaz de correr subagentes |
+| `PROOF.md` (§6.6) | Un archivo de texto | Universal |
+| El control de salida (§6.3) | **Un hook del CLI** | Solo donde existan hooks con capacidad de bloqueo |
+| El parte de arranque (§6.4) | Un hook del CLI | Ídem |
+
+El 90% del plugin es texto plano y ya es agnóstico por construcción. Lo único
+atado a Claude Code son los dientes.
+
+### Requisito de degradación
+
+**La skill debe funcionar sin los hooks.** Si alguien la usa en un entorno sin
+hooks, tiene que seguir sirviendo: la escala, el catálogo y la consigna del
+verificador operan igual — sin capataz, pero con método.
+
+Esto sigue la convención ya establecida en `saas-builder`: *"cada skill funciona
+sola con un fallback embebido; se pone mejor con las herramientas opcionales,
+pero nunca bloquea sin ellas"*.
+
+Consecuencia práctica de diseño: **ninguna instrucción esencial vive solo dentro
+de un hook.** Los hooks refuerzan lo que la skill ya dice; no aportan reglas
+propias. Si un hook desaparece, se pierde la obligatoriedad, nunca el criterio.
+
+### Orden de portado
+
+1. **v1 — Claude Code.** Hooks nativos, subagentes nativos. Es donde las
+   capacidades aparecen primero.
+2. **v1.x — OpenCode.** Corre subagentes vía plugins y adapta rápido lo que sale
+   en Claude Code. Es el siguiente destino natural.
+3. **Después — Codex, Gemini CLI, Cursor.** Con la skill y el catálogo como
+   Agent Skills portables, más el comando `/proof` manual reemplazando al hook.
+   Modo sin dientes: el método sin el capataz.
+
+No se implementa nada de esto en v1 (ver §14). Lo que sí se hace en v1 es escribir
+el contenido de forma que portarlo después sea cambiar el envase, no reescribir
+el contenido.
+
+---
+
+## 13. Cómo se prueba el propio plugin
 
 PFD se verifica con su propia regla, o no vale nada.
 
@@ -418,7 +472,7 @@ terminado.
 
 ---
 
-## 13. Fuera de alcance en v1
+## 14. Fuera de alcance en v1
 
 - Integración escrita con engram (solo se documenta el puente).
 - Promoción automática al `CLAUDE.md`.
@@ -431,7 +485,7 @@ terminado.
 
 ---
 
-## 14. Estructura de archivos
+## 15. Estructura de archivos
 
 ```
 proof-first/
@@ -456,7 +510,7 @@ proof-first/
 
 ---
 
-## 15. Decisiones tomadas y por qué
+## 16. Decisiones tomadas y por qué
 
 | Decisión | Alternativa descartada | Por qué |
 |---|---|---|
@@ -467,4 +521,5 @@ proof-first/
 | Verificador sin permiso de escritura de código | Verificador que puede arreglar | Si arregla, aprueba lo que él mismo arregló |
 | Coordenada, no copia de la prueba | Archivar capturas | Las copias también se pudren y nadie las mira |
 | Hook prompt-based | Lista de rutas por regex | Una lista fija se rompe con cualquier estructura inesperada |
+| La skill funciona sin hooks | Hooks obligatorios | Lo que es prompt corre en cualquier modelo; atar el criterio al hook lo encierra en un solo CLI |
 | Nombre `proof-first` | `witness`, `receipts`, `oob` | Nombra el método, no solo la herramienta, y contrasta directo con SDD. `receipts` ya está tomado por RDD. `witness` sobrevive como el nombre del verificador |
