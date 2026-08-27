@@ -69,10 +69,31 @@ def clasificar(archivos):
     """Categoria cara -> archivos que la dispararon. Vacio si nada es caro."""
     resultado = {}
     for ruta in archivos:
-        bajo = ruta.lower()
+        # ponytail: tokenizar por separadores comunes, no substring matching
+        # evita falsos positivos como "rol" en "controller" o "acl" en "oracle"
+        ruta_bajo = ruta.lower()
+        tokens = []
+        current_token = []
+        for char in ruta_bajo:
+            if char in "/_-. ":
+                if current_token:
+                    tokens.append("".join(current_token))
+                    current_token = []
+            else:
+                current_token.append(char)
+        if current_token:
+            tokens.append("".join(current_token))
+
         for clave, cat in CATEGORIAS.items():
-            if any(p in bajo for p in cat["patrones"]):
-                resultado.setdefault(clave, []).append(ruta)
+            # un patron dispara si es token exacto o un prefijo de un token
+            # (ej: "migration" matchea "migrations", pero "rol" no matchea "controller")
+            for patron in cat["patrones"]:
+                for token in tokens:
+                    if token == patron or token.startswith(patron + "_") or token.startswith(patron + "s"):
+                        resultado.setdefault(clave, []).append(ruta)
+                        break
+                if ruta in resultado.get(clave, []):
+                    break
     return resultado
 
 
@@ -131,6 +152,12 @@ def _autotest():
     subprocess.run(["git", "init", "-q"], cwd=d, check=True)
     open(os.path.join(d, "nuevo.py"), "w").write("x = 1\n")
     assert cambios_sin_commitear(d) == ["nuevo.py"], cambios_sin_commitear(d)
+
+    # falsos positivos: "rol" no debe matching en "controller", "acl" en "oracle", etc.
+    assert clasificar(["src/controllers/user_controller.py"]) == {}, "controller no es rol"
+    assert clasificar(["app/control/index.ts"]) == {}, "control no es rol"
+    assert clasificar(["lib/oracle_client.py"]) == {}, "oracle no es acl"
+    assert clasificar(["components/Modal.tsx"]) == {}, "Modal no es nada"
 
     print("deteccion.py OK")
 

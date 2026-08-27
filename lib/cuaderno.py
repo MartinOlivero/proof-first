@@ -42,7 +42,7 @@ Generado y mantenido por proof-first.
 
 # Un acta ocupa tres lineas. Se parsea con estas dos expresiones.
 _RE_ACTA = re.compile(r"^✅ (?P<fecha>[^ ]+) · (?P<que>.+?) · nivel (?P<nivel>\d+)$")
-_RE_CUBRE = re.compile(r"^\s+cubre: (?P<cubre>.+?) · huella: (?P<huella>\S+)$")
+_RE_CUBRE = re.compile(r"^\s+cubre: (?P<cubre>.*?) · huella: (?P<huella>\S*)$")
 
 
 def _vacio():
@@ -91,8 +91,9 @@ def leer(ruta):
                     continue
                 mc = _RE_CUBRE.match(linea)
                 if mc:
-                    acta_parcial["cubre"] = [c.strip() for c in mc.group("cubre").split(",")]
-                    acta_parcial["huella"] = mc.group("huella")
+                    cubre_str = mc.group("cubre").strip()
+                    acta_parcial["cubre"] = [c.strip() for c in cubre_str.split(",")] if cubre_str else []
+                    acta_parcial["huella"] = mc.group("huella").strip()
                     datos["actas"].append(acta_parcial)
                     acta_parcial = None
 
@@ -132,14 +133,14 @@ def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
     datos["actas"].append({"fecha": fecha, "que": que, "nivel": nivel,
                            "prueba": prueba, "cubre": cubre, "huella": huella})
     # Si estaba como deuda, deja de estarlo.
-    datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(que)]
+    datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
     escribir(ruta, datos)
 
 
 def agregar_deuda(ruta, que, motivo, quien, fecha):
     datos = leer(ruta)
     entrada = f"{que} — {motivo} — deuda asumida por {quien} {fecha}"
-    datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(que)]
+    datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
     datos["sin_probar"].append(entrada)
     escribir(ruta, datos)
 
@@ -149,7 +150,7 @@ def _autotest():
     d = tempfile.mkdtemp()
     ruta = os.path.join(d, "PROOF.md")
 
-    # archivo inexistente devuelve estructura vacía
+    # archivo inexistente devuelve estructura vacia
     vacio = leer(ruta)
     assert vacio["actas"] == [], vacio
     assert vacio["bloqueante"] == [], vacio
@@ -174,6 +175,27 @@ def _autotest():
     assert "Tincho" in d2["sin_probar"][0], d2["sin_probar"]
     # agregar una deuda no pisa el acta anterior
     assert len(d2["actas"]) == 1, d2["actas"]
+
+    # una acta con cubre vacio (ej: verificar DNS) ida y vuelta se preserva
+    agregar_acta(ruta, que="El DNS resuelve", nivel=5,
+                 prueba="dig +short da 76.76.21.21", cubre=[], huella="000000", fecha="27/08")
+    d3 = leer(ruta)
+    assert len(d3["actas"]) == 2, d3["actas"]
+    a_dns = [a for a in d3["actas"] if a["que"] == "El DNS resuelve"][0]
+    assert a_dns["cubre"] == [], a_dns
+
+    # deuda con prefijo comun: "Pago" y "Pago Stripe" son casos distintos
+    d = tempfile.mkdtemp()
+    ruta2 = os.path.join(d, "PROOF.md")
+    agregar_deuda(ruta2, que="Pago", motivo="sin probar", quien="A", fecha="27/08")
+    agregar_deuda(ruta2, que="Pago Stripe", motivo="sin probar", quien="B", fecha="27/08")
+    d4 = leer(ruta2)
+    assert len(d4["sin_probar"]) == 2, d4["sin_probar"]
+    # marcar "Pago" como acta no borra "Pago Stripe"
+    agregar_acta(ruta2, que="Pago", nivel=5, prueba="test", cubre=[], huella="aaa", fecha="27/08")
+    d5 = leer(ruta2)
+    assert len(d5["sin_probar"]) == 1, d5["sin_probar"]
+    assert "Pago Stripe" in d5["sin_probar"][0], d5["sin_probar"]
 
     print("cuaderno.py OK")
 
