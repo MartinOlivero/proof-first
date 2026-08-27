@@ -16,6 +16,14 @@ Artefactos crudos que trajo (no resumenes):
   $ mcp__stripe__stripe_api_read GetCharges {"limit":1}
   Error: Your API key does not have the required permissions for 'GetCharges'.
 
+  (Nota: esa herramienta es del MCP de Stripe que tenia disponible el
+  controlador que corrio el caso a mano. El witness que se publica no la tiene:
+  su linea `tools:` es una lista blanca —Bash, Read, Grep, Glob, WebFetch— y no
+  incluye ningun MCP. Un witness instalado llegaria al mismo lugar por otro
+  camino, un `curl` a la API de Stripe, y con el mismo resultado: sin permisos,
+  el veredicto es NO VERIFICABLE. Lo que el caso demuestra es el veredicto y la
+  negativa a inventar, no el acceso a un MCP.)
+
   $ find /tmp/proof-witness-ok -iname "*log*"
   (sin resultados)
 

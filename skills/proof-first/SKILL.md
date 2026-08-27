@@ -1,6 +1,6 @@
 ---
 name: proof-first
-description: This skill should be used when work touches money, authentication, user data, permissions, deploys, outbound messages, backups or scheduled jobs — anything where being wrong is expensive — and someone needs to know whether it actually works. It replaces the agent's own report with evidence observable from outside the agent, on a 0-6 scale, and carries a catalogue of what counts as real proof versus the false proof usually accepted for each kind of work. Trigger phrases (Spanish) include "¿cómo compruebo que esto funciona?", "¿esto ya está probado?", "verificá que el pago funcione", "¿cómo sé que el login anda?", "quedó andando?", "probalo de verdad". Trigger phrases (English) include "how do I verify this", "is this actually tested", "prove the payment works", "check that it really works", "show me the evidence". Use it INSTEAD of trusting a green test suite the agent itself wrote.
+description: This skill should be used when work touches money, authentication, saving or deleting user data, permissions, deploys, outbound messages, backups, scheduled jobs or external integrations — anything where being wrong is expensive — and someone needs to know whether it actually works. It replaces the agent's own report with evidence observable from outside the agent, on a 0-6 scale, and carries a catalogue of what counts as real proof versus the false proof usually accepted for each kind of work. Trigger phrases (Spanish) include "¿cómo compruebo que esto funciona?", "¿esto ya está probado?", "verificá que el pago funcione", "¿cómo sé que el login anda?", "quedó andando?", "probalo de verdad". Trigger phrases (English) include "how do I verify this", "is this actually tested", "prove the payment works", "check that it really works", "show me the evidence". Use it INSTEAD of trusting a green test suite the agent itself wrote.
 ---
 
 # Proof-First Development
@@ -83,6 +83,45 @@ proyecto, versionado en git para que sea auditable por un tercero.
 - Sin probar por decisión del usuario → una deuda, **con su nombre y la fecha**.
   La diferencia entre "lo postergamos a propósito" y "nos olvidamos" es la
   información más valiosa del archivo.
+
+### El formato de `PROOF.md`
+
+El archivo se lee con títulos de sección **exactos**: un `## ⚠️ SIN PROBAR` en
+lugar de `## ⚠️ HECHO SIN PROBAR` se parsea como sección vacía, y una deuda
+declarada ahí no libera el control de salida. Si lo escribís a mano, este es el
+esqueleto, tal cual, emojis incluidos:
+
+```markdown
+# PROOF
+
+Cuaderno de obra. Lo vivo arriba, lo probado plegado abajo.
+Generado y mantenido por proof-first.
+
+## 🔴 BLOQUEANTE
+
+## ⬜ ABIERTO
+
+## ⚠️ HECHO SIN PROBAR
+- Checkout Stripe — necesita nivel 5, tiene nivel 2 — deuda asumida por Tincho 27/08
+
+## ⏸️ POSTERGADO
+
+<details>
+<summary>▸ PROBADO (1)</summary>
+
+✅ 27/08 · Login con Google · nivel 5
+   prueba: user_id 8814 en Auth0 · sesión anónima rechazada 401
+   cubre: src/auth/sesion.ts, src/auth/token.ts · huella: a3f9c1
+
+</details>
+```
+
+Las cuatro secciones vivas llevan sus items como viñetas (`- `). Un acta ocupa
+tres líneas, en ese orden, y `cubre` son archivos existentes separados por coma
+—nunca un comodín ni un directorio: un acta sobre un patrón no vence nunca—. Si
+la prueba no cuelga de ningún archivo, `cubre` va vacío y no vence, que es
+correcto. La huella son los primeros 6 caracteres del SHA-256 de nombre +
+contenido de cada archivo cubierto, ordenados.
 
 ## Si no hay hooks
 

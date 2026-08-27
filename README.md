@@ -29,8 +29,9 @@ sinceridad.
 
 El subagente `witness` es quien sale a buscar la prueba: arranca sin el
 contexto de cómo se construyó el código, con la consigna invertida
-("demostrá que esto NO funciona") y sin permiso para editar nada más que
-`PROOF.md`.
+("demostrá que esto NO funciona") y sin herramienta de escritura: lo único que
+puede escribir es el acta, corriendo el comando `lib/cuaderno.py` que le llega
+con su ruta absoluta en el prompt.
 
 **Sin git, el hook nunca bloquea *por código detectado*: aprueba siempre**,
 porque no puede saber qué archivo se tocó — pero un 🔴 BLOQUEANTE escrito a
@@ -143,9 +144,11 @@ included, in [`skills/proof-first/references/catalogo.md`](skills/proof-first/re
   looks like it covers more than it does.
 - **The `witness` subagent** (`agents/witness.md`) is who actually goes and
   gets the proof. It starts with no memory of how the code was built, works
-  under an inverted instruction — *prove this does NOT work* — and can't
-  edit project code, only write to `PROOF.md`. It receives the catalogue row
-  for its category in the prompt; it never opens the catalogue file itself.
+  under an inverted instruction — *prove this does NOT work* — and has no
+  `Write` tool at all: the one write it can make is running `lib/cuaderno.py`,
+  the command that records the acta in `PROOF.md`. It receives the catalogue
+  row for its category, and the absolute path to that command, in the prompt;
+  it never opens the catalogue file itself, and never guesses the path.
 - **`PROOF.md`** (`lib/cuaderno.py`) is the log at the project root, checked
   into git so a third party can audit it. What's proven gets an *acta* with
   the proof's *coordinate* (a charge ID, a status code, a user ID) — never a
@@ -180,6 +183,13 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
   because that's a person's decision, not an inference from a diff. This is
   a deliberate trade-off: a false approve on undetectable changes is
   recoverable, a false block on a project the hook can't reason about isn't.
+- **A first block that feels wrong:** the detector matches file *paths*
+  against broad patterns — `models`, `job`, `schedule`, `token` — so an
+  ordinary file can trip it (`src/models/Button.tsx`, `lib/job-queue-ui.ts`).
+  That's the design, not a bug: it's tuned to ask too often rather than let a
+  broken charge through, and one line of declared debt closes the turn. If a
+  pattern keeps firing on the same harmless file, that's what the debt entry
+  is for.
 - **No hooks at all** (a CLI that doesn't support them, or the plugin's hook
   disabled): the `proof-first` skill still works exactly the same. The
   criterion — the scale, the rule, the catalogue — lives entirely in
@@ -192,9 +202,14 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
 |---|---|
 | **SDD** (Spec-Driven Development) | Orders *what* to build. A prose spec still needs a human to read and judge it — it doesn't verify anything once the system runs. |
 | **TDD** | Produces tests, but level 2 on the scale above when the same agent writes the test and the code: they share assumptions and blind spots. |
-| **RDD** (Receipt-Driven Development, from gentle-ai) | Reviews the *frozen code candidate* — a very elaborate level 3. It never leaves the code to check the world; proof-first exists to make that trip, out to level 5. |
-| **engram** | A searchable history across sessions and projects. `PROOF.md` is this project's present, versioned state, not a long-term memory store — complementary, not overlapping. |
-| **`saas-builder`** (same author) | Builds the product. Its own README leaves the gap on purpose — its coverage table has a "Dev process — brainstorm, TDD, debug, git, review" row reading *"Superpowers owns this (not duplicated)"* — and what Superpowers puts there is TDD — level 2. `proof-first` is the optional companion that covers what's expensive to get wrong. |
+| **RDD** (Receipt-Driven Development, from [gentle-ai](https://github.com/Gentleman-Programming/gentle-ai)) | Reviews the *frozen code candidate* — a very elaborate level 3. It never leaves the code to check the world; proof-first exists to make that trip, out to level 5. |
+| **[engram](https://github.com/Gentleman-Programming/engram)** | A searchable history across sessions and projects. `PROOF.md` is this project's present, versioned state, not a long-term memory store — complementary, not overlapping. |
+| **[Superpowers](https://github.com/obra/superpowers)** | Supplies process — brainstorming, TDD, debugging, plans. Its testing rung is TDD, which is level 2 when the same agent writes code and test. Complementary: proof-first adds the trip outside. |
+| **[`saas-builder`](https://github.com/MartinOlivero/saas-builder)** (same author) | Builds the product. Its own README leaves the gap on purpose — its coverage table has a "Dev process — brainstorm, TDD, debug, git, review" row reading *"Superpowers owns this (not duplicated)"* — and what Superpowers puts there is TDD — level 2. `proof-first` is the optional companion that covers what's expensive to get wrong. |
+
+Each row is a claim about someone else's project, so the links are there to be
+checked — in a README arguing that an unsourced claim is level 0, they're the
+minimum.
 
 None of these compete with proof-first — none of them answer "does this,
 which claims to work, work, from the outside?" That question is this
@@ -208,14 +223,17 @@ evidence are different claims, over different files, so they aren't lumped
 into one:
 
 - **The `Stop` hook**, invoked exactly as Claude Code invokes it (a JSON
-  payload on stdin, the decision read back on stdout), was put through four
+  payload on stdin, the decision read back on stdout), was put through five
   situations: it blocks on untested auth code with no acta; it approves once
-  the debt is declared in `PROOF.md`; it blocks again once a proven acta's
-  fingerprint expires from a change that got committed; it approves
-  unconditionally with no git at all. These are four situations the hook was
-  exercised in — not literally "the four scenarios" from the design spec:
-  one of them (no git) isn't on that list, and the spec's own second
-  scenario is the witness, covered next as its own claim.
+  the debt is declared in `PROOF.md` — written by the same `cuaderno.py`
+  command the witness runs; it blocks again once that acta's fingerprint
+  expires from a change that got committed; it approves unconditionally with
+  no git at all; and with `stop_hook_active` set it approves even while
+  something is still unproven, naming it instead of trapping the turn. These
+  are situations the hook was exercised in — not literally "the scenarios"
+  from the design spec: two of them (no git, the anti-loop) aren't on that
+  list, and the spec's own second scenario is the witness, covered next as its
+  own claim.
 - **The `witness` subagent** was run twice for real — by hand, by the
   project's controller, outside the plugin's own machinery (the plugin has
   never fired inside a live Claude Code session; that's the open item right
@@ -230,9 +248,11 @@ into one:
   instruction (told to disprove, not confirm), the raw artifact instead of a
   summary, no invention, no hands (nothing edited but `PROOF.md`), and
   working from its catalogue row instead of opening the catalogue itself.
-  Full raw transcripts of both runs, and of the hook's four situations, are
-  tracked in [`docs/evidencia/`](docs/evidencia/) — `PROOF.md`'s coordinates
-  point there, not at anything gitignored.
+  Both runs, and the hook's situations, are written up in
+  [`docs/evidencia/`](docs/evidencia/) — reports by the person who ran them,
+  quoting the commands and the tool output verbatim, not literal session
+  transcripts. `PROOF.md`'s coordinates point there, not at anything
+  gitignored.
 
 **What's still not exercised, stated plainly:** the third verdict, **✅
 PROBADO**, needs a real system running with real credentials to reach — the
