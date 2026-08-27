@@ -499,11 +499,14 @@ proof-first/
 │           └── catalogo.md        (las 10 entradas con el cómo)
 ├── agents/
 │   └── witness.md                 (el verificador)
+├── lib/
+│   ├── cuaderno.py                (única pieza que conoce el formato de PROOF.md)
+│   ├── huella.py                  (cálculo y chequeo de vencimiento)
+│   └── deteccion.py               (qué categorías caras toca un cambio)
 ├── hooks/
 │   ├── hooks.json
-│   ├── stop-gate.py               (el control de salida)
-│   ├── session-report.py          (el parte de arranque)
-│   └── huella.py                  (cálculo y chequeo de vencimiento)
+│   ├── stop_gate.py               (el control de salida)
+│   └── session_report.py          (el parte de arranque)
 └── commands/
     └── proof.md
 ```
