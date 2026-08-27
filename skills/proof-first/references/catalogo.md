@@ -147,7 +147,8 @@ que un desarrollador rara vez escribe solo, porque no es el camino feliz.
 **Cómo se consigue la buena:**
 
 ```bash
-# sesión de A: crea o consulta un recurso propio, anotá su ID
+# sesión de A: consultá un recurso propio que YA exista, anotá su ID
+# (si no hay ninguno, lo crea una persona: el testigo no siembra datos)
 curl -s -b cookies_a.txt https://<tu-dominio>/api/proyectos/123
 
 # sesión de B (login separado, cookies distintas): pide el recurso de A por ID
@@ -282,7 +283,15 @@ con la del restore, o cortado a la mitad por quedarse sin disco, también
 descubre el único día en que importa: cuando ya se perdieron los datos
 originales y el backup es lo único que queda.
 
-**Cómo se consigue la buena** (ejemplo con Postgres — adaptar al motor real):
+**Cómo se consigue la buena** (ejemplo con Postgres — adaptar al motor real).
+
+> ⚠️ **Esta fila la ejecuta una persona, no el testigo.** Es la única del
+> catálogo cuya prueba exige *escribir*: crea una base, restaura encima y la
+> borra. El testigo tiene prohibido escribir —y `pg_restore` es el comando de
+> mayor consecuencia de todo el catálogo—, así que cuando le toca esta fila
+> devuelve `no verificable` y entrega estos comandos para que los corra la
+> persona, que después le trae la salida cruda. El testigo verifica esa salida;
+> no la produce.
 
 ```bash
 # 1. levantar una base descartable, separada de la real
@@ -306,6 +315,12 @@ dropdb backup_test
 
 - La entrada #10 (Backup) es la falsa prueba más cara que existe, porque se
   descubre el único día en que importa.
+- **Regla general sobre los comandos de este catálogo:** el testigo solo corre
+  los que leen. Un pedido que el sistema está diseñado para recibir desde
+  afuera (el `curl` sin token que tiene que dar 401, el login contra el
+  endpoint público) cuenta como lectura: es la prueba misma. Todo lo que
+  escribe —restaurar, crear una base, sembrar una fila— lo ejecuta una persona
+  y el testigo verifica su salida. Hoy la única fila así es la #10.
 - La entrada #1 (Cobro / pago) — "un checkout que da por pagado en el redirect
   del cliente" — ya figura como antipatrón en el README de `saas-builder`.
 - El catálogo es fijo en v1: las diez filas no se extienden por proyecto
