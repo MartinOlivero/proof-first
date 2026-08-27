@@ -35,7 +35,7 @@ eso incluye `PROOF.md`. El acta se labra corriendo un comando.
 sembrar datos, sin flags `-i`, sin redirecciones hacia archivos del proyecto.
 Solo lectura, `curl` GET, greps de log y consultas al proveedor. **La única
 escritura que tenés permitida con `Bash` es correr la CLI de `cuaderno.py`
-para dejar el acta** —`python3 <ruta-absoluta>/cuaderno.py acta ...`, el
+para dejar el acta** (el subcomando `acta`; `deuda` no es tuyo, ver abajo) —`python3 <ruta-absoluta>/cuaderno.py acta ...`, el
 formato exacto está abajo en "Cómo se escribe el acta"—: ese comando y ningún
 otro. No es una grieta en la regla; es la única forma que tenés de escribir, y
 solo sirve para escribir el acta.
@@ -106,7 +106,11 @@ python3 /ruta/absoluta/lib/cuaderno.py acta /ruta/absoluta/PROOF.md \
   --cubre "src/pagos/webhook.ts, src/pagos/checkout.ts"
 ```
 
-- `--que` es la afirmación que se probó, en una línea.
+- `--que` es la afirmación que se probó, en una línea y en términos humanos
+  ("El login rechaza sin token"), **nunca una ruta de archivo**: los archivos
+  van en `--cubre`, que es lo que hace vencer el acta. Un `--que` con forma de
+  ruta y sin `--cubre` sería un acta inmortal sobre ese archivo, y el comando
+  la rechaza.
 - `--cubre` es la lista de archivos del proyecto que cubre la prueba —los que,
   si cambian, tienen que invalidar esta acta—, separados por coma y relativos
   a la raíz del proyecto. **Tienen que ser archivos que existen: nada de
@@ -122,9 +126,11 @@ python3 /ruta/absoluta/lib/cuaderno.py acta /ruta/absoluta/PROOF.md \
   respuesta pegada entera.
 - `--fecha` es opcional; por defecto, hoy.
 
-Para una deuda —lo que el usuario decide dejar sin probar— el mismo archivo
-tiene `deuda`: `... cuaderno.py deuda /ruta/PROOF.md --que "..." --motivo "..."
---quien "Tincho"`.
+**Vos escribís actas, nunca deudas.** El mismo archivo tiene un subcomando
+`deuda`, y no es tuyo: una deuda dice "deuda asumida por <fulano>", y un
+verificador que la escribe está abriendo la puerta en nombre de una persona que
+no decidió nada. Si la prueba no se puede conseguir, tu veredicto es
+`no verificable` y la decisión de seguir sin probar la toma el usuario.
 
 Por qué importa la huella: sin ella el acta certifica para siempre, incluso
 después de que el código que cubría haya cambiado. Un acta sin huella es

@@ -40,7 +40,11 @@ def _cubierto(nombre, datos, expired_set=None):
         # No contar actas expiradas como cobertura.
         if a["que"] in expired_set:
             continue
-        if nombre == a["que"] or nombre in a["cubre"]:
+        # Solo `cubre` cubre archivos. El `que` es el nombre humano de la
+        # afirmacion ("Login con Google"): si tambien contara, un acta con `que`
+        # con forma de ruta y `cubre` vacio taparia ese archivo para siempre,
+        # sin ninguna huella detras que la haga vencer.
+        if nombre in a["cubre"]:
             return True
 
     for d in datos["sin_probar"]:
@@ -208,9 +212,9 @@ def _autotest():
     assert decidir(d)["decision"] == "approve", decidir(d)
 
     # un cambio caro sin acta: bloquea y nombra la categoria.
-    # Se commitea la base primero: git colapsa una carpeta nueva entera en una
-    # sola linea ("?? src/auth/"), asi que un proyecto sin historia no muestra
-    # los archivos uno por uno. Con historia —el caso real— si.
+    # Se commitea la base primero solo para ejercitar el caso mas comun (editar
+    # un archivo que ya existe). Con --untracked-files=all, un archivo nuevo en
+    # una carpeta nueva tambien se ve: eso lo cubre el autotest de deteccion.py.
     os.makedirs(os.path.join(d, "src", "auth"), exist_ok=True)
     ruta_auth = os.path.join(d, "src", "auth", "login.ts")
     open(ruta_auth, "w").write("export const login = () => {}\n")
@@ -415,6 +419,24 @@ def _autotest():
     assert r9["decision"] == "block", f"Round 2: uncovered acta should block: {r9}"
     assert "model.prisma" in r9["reason"], f"Round 2: should name uncovered acta: {r9['reason']}"
     assert "login.ts" not in r9["reason"], f"Round 2: should not name covered acta: {r9['reason']}"
+
+    # Un acta cuyo `que` es una ruta pero no cubre archivos NO tapa ese archivo.
+    # (cuaderno.agregar_acta ya la rechaza; se escribe a mano para probar que el
+    # hook tampoco la acepta si aparece en un PROOF.md escrito por otro lado.)
+    d11 = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=d11, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d11, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d11, check=True)
+    os.makedirs(os.path.join(d11, "src", "auth"), exist_ok=True)
+    open(os.path.join(d11, "src", "auth", "login.ts"), "w").write("export const login = () => {}\n")
+    p11 = os.path.join(d11, "PROOF.md")
+    datos11 = cuaderno.leer(p11)
+    datos11["actas"].append({"fecha": "27/08", "que": "src/auth/login.ts", "nivel": 5,
+                             "prueba": "confia en mi", "cubre": [], "huella": "000000"})
+    cuaderno.escribir(p11, datos11)
+    r11b = decidir(d11)
+    assert r11b["decision"] == "block", f"un acta sin cubre no puede tapar un archivo: {r11b}"
+    assert "src/auth/login.ts" in r11b["reason"], r11b["reason"]
 
     # stop_hook_active: aprueba igual, pero nombra lo que quedo sin probar.
     # Es la invariante: el hook nunca puede dejar el turno sin poder cerrar.

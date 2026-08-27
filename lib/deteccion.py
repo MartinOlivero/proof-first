@@ -12,6 +12,7 @@ falsos positivos se desinstala el segundo dia, y ahi no protege nada.
 """
 
 import os
+import re
 import subprocess
 
 # nivel 5 = hace falta un tercero sin interes que lo confirme (spec §4)
@@ -106,6 +107,22 @@ def clasificar(archivos):
     return resultado
 
 
+# Carpetas que no son del proyecto aunque git las liste: dependencias, entornos
+# y salidas de build. Se comparan como SEGMENTO de ruta, nunca como substring,
+# para no descartar "src/build_pipeline.ts" por contener "build".
+RUIDO = {"node_modules", ".venv", "venv", "dist", "build", "target",
+         "vendor", ".next", "__pycache__", ".git"}
+
+
+def _segmentos(ruta):
+    """Los tramos de una ruta, con separador de unix o de windows."""
+    return [t for t in re.split(r"[/\\]", ruta) if t]
+
+
+def _es_ruido(ruta):
+    return any(seg in RUIDO for seg in _segmentos(ruta))
+
+
 def _git(args, raiz):
     """Corre git y devuelve stdout, o None si no hay git o el comando fallo."""
     try:
@@ -127,18 +144,25 @@ def cambios_sin_commitear(raiz):
 
     Dos cuidados que parecen detalles y no lo son:
 
-    - `--untracked-files=normal` (el default de git) y no `=all`. Con `=all`,
-      un proyecto sin .gitignore y con node_modules devuelve miles de rutas y
-      el hook bloquea en el primer turno por codigo que el usuario nunca toco.
-      El precio: una carpeta nueva entera aparece colapsada ("src/auth/") en
-      vez de archivo por archivo. Se prefiere eso a un bloqueo fantasma.
+    - `--untracked-files=all`, y el ruido se filtra despues por nombre de
+      carpeta (RUIDO). El default de git (`=normal`) colapsa CUALQUIER carpeta
+      enteramente sin trackear en una sola linea —"?? src/"— y eso pasa
+      tambien en un repo con historia: un agente que crea `src/auth/` en un
+      turno dejaba de ser visto por el hook, que aprobaba codigo caro sin
+      probar. Ceguera silenciosa es peor que ruido. Con `=all` se ven los
+      archivos uno por uno y se descartan los que viven dentro de una carpeta
+      de dependencias o de build.
+      El limite de este filtro: un proyecto cuyo codigo propio viva dentro de
+      una carpeta con uno de esos nombres (un `dist/` escrito a mano, un
+      paquete llamado `vendor`) queda invisible para el hook. Se prefiere eso
+      a bloquear el primer turno por `node_modules/stripe/index.js`.
     - git imprime las rutas relativas a la raiz del REPO, no al directorio de
       la sesion. En un monorepo trabajando en apps/web, sin traducirlas el
       hook nombraria los paquetes hermanos y la huella se calcularia sobre
       rutas que no existen desde ahi. Por eso se traducen contra `raiz` y lo
       que cae afuera se descarta.
     """
-    salida = _git(["status", "--porcelain", "--untracked-files=normal"], raiz)
+    salida = _git(["status", "--porcelain", "--untracked-files=all"], raiz)
     if salida is None:
         return None
     techo = _git(["rev-parse", "--show-toplevel"], raiz)
@@ -157,6 +181,8 @@ def cambios_sin_commitear(raiz):
         # git muestra los renombrados como "viejo -> nuevo"; nos interesa el nuevo
         if " -> " in ruta:
             ruta = ruta.split(" -> ", 1)[1]
+        if _es_ruido(ruta):
+            continue
         rel = os.path.relpath(os.path.join(techo, ruta), base)
         # Lo que quedo fuera del directorio de la sesion no es asunto de este turno.
         if rel == os.pardir or rel.startswith(os.pardir + os.sep):
@@ -212,12 +238,32 @@ def _autotest():
     desde_raiz = sorted(cambios_sin_commitear(m))
     assert desde_raiz == ["apps/api/src/pagos.ts", "apps/web/src/login.ts"], desde_raiz
 
-    # node_modules entero cae como una sola ruta colapsada, no como miles
+    # node_modules no aparece, ni siquiera con archivos adentro, PERO el archivo
+    # caro que esta al lado si: ceguera cero, ruido cero
     n = tempfile.mkdtemp()
     subprocess.run(["git", "init", "-q"], cwd=n, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=n, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=n, check=True)
     os.makedirs(os.path.join(n, "node_modules", "stripe"))
     open(os.path.join(n, "node_modules", "stripe", "index.js"), "w").write("x\n")
-    assert cambios_sin_commitear(n) == ["node_modules"], cambios_sin_commitear(n)
+    open(os.path.join(n, "node_modules", "passport.js"), "w").write("x\n")
+    os.makedirs(os.path.join(n, "src", "auth"))
+    open(os.path.join(n, "src", "auth", "login.ts"), "w").write("x\n")
+    assert cambios_sin_commitear(n) == ["src/auth/login.ts"], cambios_sin_commitear(n)
+
+    # una carpeta nueva ENTERA se ve archivo por archivo, tambien con historia:
+    # con -unormal git la colapsaba en "?? src/" y el hook quedaba ciego
+    open(os.path.join(n, "README.md"), "w").write("x\n")
+    subprocess.run(["git", "add", "README.md"], cwd=n, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=n, check=True)
+    assert cambios_sin_commitear(n) == ["src/auth/login.ts"], cambios_sin_commitear(n)
+
+    # el filtro es por segmento, no por substring: esto NO es build/
+    b = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=b, check=True)
+    os.makedirs(os.path.join(b, "src"))
+    open(os.path.join(b, "src", "build_pipeline.ts"), "w").write("x\n")
+    assert cambios_sin_commitear(b) == ["src/build_pipeline.ts"], cambios_sin_commitear(b)
 
     # falsos positivos: "rol" no debe matching en "controller", "acl" en "oracle", etc.
     assert clasificar(["src/controllers/user_controller.py"]) == {}, "controller no es rol"

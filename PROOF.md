@@ -18,12 +18,12 @@ Generado y mantenido por proof-first.
 <details>
 <summary>▸ PROBADO (2)</summary>
 
-✅ 27/08 · El hook Stop en cinco situaciones reales (no las de la spec §13) · nivel 4
-   prueba: A bloquea, reason incluye "Login / auth (nivel 5): src/auth/login.ts" · B aprueba con la deuda declarada por la CLI de cuaderno.py: {"decision": "approve"} · C acta escrita por esa misma CLI, aprueba, y tras cambiar y commitear el archivo vuelve a bloquear con "quedaron vencidas porque cambiaron los archivos que cubrían" · D aprueba sin git: {"decision": "approve"} · E con stop_hook_active aprueba y nombra lo que quedó sin probar — las 5 corridas completas, crudas, en docs/evidencia/hook-runs.md
-   cubre: hooks/stop_gate.py, lib/deteccion.py, lib/cuaderno.py, lib/huella.py · huella: b568dd
+✅ 27/08 · El hook Stop en seis situaciones reales (no las de la spec §13) · nivel 4
+   prueba: A bloquea sobre una carpeta src/auth/ nueva y entera en un repo con historia, reason incluye "Login / auth (nivel 5): src/auth/login.ts" · B aprueba con la deuda declarada por la CLI de cuaderno.py · C acta escrita por esa misma CLI, aprueba, y tras cambiar y commitear el archivo vuelve a bloquear con "quedaron vencidas porque cambiaron los archivos que cubrían" · D aprueba sin git · E con stop_hook_active aprueba y nombra lo que quedó sin probar · F rechaza el acta sin cubre cuyo que es una ruta — las 6 corridas completas, crudas, en docs/evidencia/hook-runs.md
+   cubre: hooks/stop_gate.py, lib/deteccion.py, lib/cuaderno.py, lib/huella.py · huella: e1d6cd
 
 ✅ 27/08 · El testigo (witness), corrido a mano por el controlador, en dos casos reales: REFUTADO y NO VERIFICABLE · nivel 4
    prueba: Corrido a mano por el controlador, fuera de la maquinaria del plugin — caso 1: "VEREDICTO DEVUELTO: ❌ REFUTADO" sobre "// TODO: marcar el pedido como pagado", hallazgo propio: firma del webhook nunca verificada · caso 2: "VEREDICTO DEVUELTO: ⚠️ NO VERIFICABLE", "Error: Your API key does not have the required permissions for 'GetCharges'.", listó 5 cosas concretas y quién las provee — el reporte de cada corrida, con los comandos y las salidas citados literales (no una transcripción de la sesión), en docs/evidencia/witness-run-1.md y docs/evidencia/witness-run-2.md
-   cubre: agents/witness.md · huella: 6ea1db
+   cubre: agents/witness.md · huella: d0166b
 
 </details>

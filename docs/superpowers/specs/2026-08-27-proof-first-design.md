@@ -419,7 +419,7 @@ the witness (contexto limpio, consigna invertida, sin manos)
 | El turno fue solo conversación | No interviene |
 | El verificador no tiene credenciales | `no verificable`, con la lista exacta de lo que falta |
 | El usuario interrumpe a mitad | El acta no se escribe. No hay actas parciales |
-| Bloqueo repetido sobre lo mismo | Al segundo intento se ofrece declarar la deuda |
+| Bloqueo repetido sobre lo mismo | El hook bloquea una sola vez por turno. Claude Code marca la segunda pasada con `stop_hook_active: true` y ahí el hook aprueba siempre, diciendo en el `systemMessage` qué quedó sin evidencia (§6.3) |
 | Proyecto ajeno sin `PROOF.md` | Funciona igual; propone crearlo, no lo impone |
 
 ---

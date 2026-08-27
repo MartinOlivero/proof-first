@@ -32,6 +32,31 @@ _RE_CUBRE = re.compile(r"^\s+cubre: (?P<cubre>.*?) · huella: (?P<huella>\S*)$")
 # Caracteres que convierten una entrada de `cubre` en un patron y no en un archivo.
 _COMODINES = "*?["
 
+# Extensiones que delatan que un texto es una ruta de archivo y no el nombre de
+# una afirmacion. No pretende ser exhaustiva: cubre lo que se ve en la practica.
+_EXTENSIONES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".sql", ".go", ".rb",
+                ".php", ".java", ".rs", ".css", ".scss", ".html", ".json", ".yml",
+                ".yaml", ".sh", ".tf", ".prisma")
+
+
+def _parece_ruta(texto):
+    t = texto.strip()
+    return "/" in t or "\\" in t or t.lower().endswith(_EXTENSIONES)
+
+
+def _validar_texto(campo, valor):
+    """
+    Ningun campo libre puede traer un salto de linea.
+
+    Por que: el acta ocupa tres lineas con un orden fijo. Un `\n` en medio de
+    `prueba` escribe una cuarta linea que el parser puede leer como el `cubre`
+    del acta, y el acta termina cubriendo otra cosa que la que se probo.
+    """
+    if "\n" in valor or "\r" in valor:
+        raise ValueError(
+            f"{campo}: no puede tener saltos de línea. El acta se escribe en "
+            "líneas fijas y un salto la parte en dos; poné el texto en una sola línea.")
+
 
 def _vacio():
     return {"bloqueante": [], "abierto": [], "sin_probar": [], "postergado": [], "actas": []}
@@ -124,11 +149,20 @@ def _validar_cubre(raiz, cubre):
     este plugin existe para atrapar, y falla en silencio. Mejor ruidoso.
     """
     for entrada in cubre:
+        if os.path.isabs(entrada):
+            raise ValueError(
+                f"cubre: «{entrada}» es una ruta absoluta. Las entradas van "
+                "relativas a la raíz del proyecto, que es donde vive PROOF.md.")
         if any(c in entrada for c in _COMODINES):
             raise ValueError(
                 f"cubre: «{entrada}» tiene un comodín. Un acta con glob nunca "
                 "vencería: poné los archivos uno por uno.")
         completa = os.path.join(raiz, entrada)
+        adentro = os.path.relpath(os.path.realpath(completa), os.path.realpath(raiz))
+        if adentro == os.pardir or adentro.startswith(os.pardir + os.sep):
+            raise ValueError(
+                f"cubre: «{entrada}» sale de la raíz del proyecto. Un acta solo "
+                "puede cubrir archivos del proyecto que certifica.")
         if os.path.isdir(completa):
             raise ValueError(
                 f"cubre: «{entrada}» es un directorio. Un acta sobre un directorio "
@@ -141,6 +175,17 @@ def _validar_cubre(raiz, cubre):
 
 
 def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
+    _validar_texto("que", que)
+    _validar_texto("prueba", prueba)
+    # Un acta sin `cubre` no vence nunca —legitimo cuando la prueba no cuelga de
+    # ningun archivo (el DNS resuelve)—, pero si ademas el `que` es una ruta,
+    # queda certificando ese archivo para siempre y sin huella detras. Es el
+    # agujero que las huellas existen para tapar, entrando por la puerta.
+    if not cubre and _parece_ruta(que):
+        raise ValueError(
+            f"«{que}» parece una ruta de archivo y el acta no cubre ningún archivo. "
+            "Un acta así nunca vencería: pasá los archivos en --cubre, o nombrá la "
+            "afirmación en términos humanos (\"El login rechaza sin token\").")
     _validar_cubre(os.path.dirname(os.path.abspath(ruta)), cubre)
     datos = leer(ruta)
     # Un acta nueva sobre lo mismo reemplaza a la anterior: el cuaderno no acumula.
@@ -153,6 +198,8 @@ def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
 
 
 def agregar_deuda(ruta, que, motivo, quien, fecha):
+    _validar_texto("que", que)
+    _validar_texto("motivo", motivo)
     datos = leer(ruta)
     entrada = f"{que} — {motivo} — deuda asumida por {quien} {fecha}"
     datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
@@ -316,6 +363,43 @@ def _autotest():
 
     # el acta rechazada no dejo rastro
     assert len(leer(ruta)["actas"]) == 2, leer(ruta)["actas"]
+
+    # un `que` que es una ruta, sin cubre, seria un acta inmortal sobre ese archivo
+    try:
+        agregar_acta(ruta, que="src/auth/login.ts", nivel=5, prueba="confia en mi",
+                     cubre=[], huella="ffffff", fecha="27/08")
+        raise AssertionError("un que con forma de ruta y sin cubre tenia que ser rechazado")
+    except ValueError as e:
+        assert "src/auth/login.ts" in str(e), e
+        assert "--cubre" in str(e), e
+    # pero con cubre pasa, y un que humano sin cubre tambien
+    agregar_acta(ruta, que="El DNS de la app resuelve", nivel=5, prueba="dig da 76.76.21.21",
+                 cubre=[], huella="000001", fecha="27/08")
+
+    # rutas absolutas y escapes fuera del proyecto: no
+    for mala, esperado in (("/etc/hosts", "absoluta"), ("../secreto.txt", "sale de la raíz")):
+        try:
+            agregar_acta(ruta, que="Fuga", nivel=5, prueba="x",
+                         cubre=[mala], huella="ffffff", fecha="27/08")
+            raise AssertionError(f"«{mala}» tenia que ser rechazada")
+        except ValueError as e:
+            assert esperado in str(e), (mala, str(e))
+
+    # un salto de linea partiria el acta en dos: se rechaza en los campos libres
+    for campo, kw in (("prueba", {"prueba": "200 OK\n   cubre: otra/cosa.ts · huella: aaaaaa"}),
+                      ("que", {"que": "Login\nfalso"})):
+        args = {"que": "Login", "nivel": 5, "prueba": "ok", "cubre": [], "huella": "a", "fecha": "27/08"}
+        args.update(kw)
+        try:
+            agregar_acta(ruta, **args)
+            raise AssertionError(f"{campo} con salto de linea tenia que ser rechazado")
+        except ValueError as e:
+            assert "saltos de línea" in str(e), e
+    try:
+        agregar_deuda(ruta, que="Pago", motivo="dos\nlineas", quien="T", fecha="27/08")
+        raise AssertionError("motivo con salto de linea tenia que ser rechazado")
+    except ValueError as e:
+        assert "saltos de línea" in str(e), e
 
     # deuda con prefijo comun: "Pago" y "Pago Stripe" son casos distintos
     d = tempfile.mkdtemp()

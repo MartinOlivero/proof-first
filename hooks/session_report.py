@@ -9,6 +9,10 @@ Presupuesto: cinco lineas (header + cuatro items). Si hay mas items que lugar,
 los ultimos cuatro estan dedicados a bloqueantes y deudas por prioridad, y si
 algo queda afuera, la ultima linea dice cuantos no entraron.
 
+Cinco lineas de verdad, no cinco items: cada uno se recorta a ANCHO caracteres.
+Un item de 400 caracteres son doce lineas envueltas en una terminal comun, y el
+presupuesto seria una promesa falsa. El detalle completo esta en PROOF.md.
+
 Salida: JSON con systemMessage, o nada si no hay cuaderno.
 """
 
@@ -23,6 +27,14 @@ import cuaderno  # noqa: E402
 import huella  # noqa: E402
 
 MAX_ITEMS = 4  # ponytail: changed to total budget, not per-category
+ANCHO = 100  # una linea de terminal comun; lo que no entra se lee en PROOF.md
+
+
+def _recortar(texto):
+    """Una linea es una linea: lo que no entra se corta con puntos suspensivos."""
+    if len(texto) <= ANCHO:
+        return texto
+    return texto[:ANCHO - 1].rstrip() + "…"
 
 
 def _fecha_vencimiento(acta, raiz):
@@ -74,6 +86,8 @@ def resumen(raiz):
             cuando = _fecha_vencimiento(a, raiz)
             nombres.append(f"{a['que']} (venció el {cuando})" if cuando else a["que"])
         items.append(f"↺ volver a probar: {', '.join(nombres)}")
+
+    items = [_recortar(i) for i in items]
 
     # Budget: 5 lines total, 1 is header, so 4 for items
     if len(items) <= MAX_ITEMS:
@@ -195,6 +209,19 @@ def _autotest():
     assert len(lines5) == 5, f"Expected 5 lines, got {len(lines5)}: {r5}"
     assert "más sin mostrar" not in r5, f"Should not have omission line: {r5}"
     assert "↺" in r5, f"Should have expired line: {r5}"
+
+    # un item larguisimo no puede romper el presupuesto: 5 lineas, y cortas
+    d4 = tempfile.mkdtemp()
+    proof4 = os.path.join(d4, "PROOF.md")
+    datos4 = cuaderno.leer(proof4)
+    datos4["abierto"].append("x" * 400)
+    datos4["bloqueante"].append("y" * 400)
+    cuaderno.escribir(proof4, datos4)
+    r6 = resumen(d4)
+    lineas6 = r6.split("\n")
+    assert len(lineas6) <= 5, lineas6
+    assert all(len(l) <= ANCHO for l in lineas6), [len(l) for l in lineas6]
+    assert lineas6[1].endswith("…"), lineas6[1]
 
     print("session_report.py OK")
 
