@@ -200,6 +200,8 @@ def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
 def agregar_deuda(ruta, que, motivo, quien, fecha):
     _validar_texto("que", que)
     _validar_texto("motivo", motivo)
+    # quien va en la misma linea que el resto: un salto forja una linea entera
+    _validar_texto("quien", quien)
     datos = leer(ruta)
     entrada = f"{que} — {motivo} — deuda asumida por {quien} {fecha}"
     datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
@@ -395,11 +397,15 @@ def _autotest():
             raise AssertionError(f"{campo} con salto de linea tenia que ser rechazado")
         except ValueError as e:
             assert "saltos de línea" in str(e), e
-    try:
-        agregar_deuda(ruta, que="Pago", motivo="dos\nlineas", quien="T", fecha="27/08")
-        raise AssertionError("motivo con salto de linea tenia que ser rechazado")
-    except ValueError as e:
-        assert "saltos de línea" in str(e), e
+    for campo, kw in (("motivo", {"motivo": "dos\nlineas"}),
+                      ("quien", {"quien": "T\n- Pago falso — deuda asumida por nadie 27/08"})):
+        args = {"que": "Pago", "motivo": "sin probar", "quien": "T", "fecha": "27/08"}
+        args.update(kw)
+        try:
+            agregar_deuda(ruta, **args)
+            raise AssertionError(f"{campo} con salto de linea tenia que ser rechazado")
+        except ValueError as e:
+            assert "saltos de línea" in str(e), e
 
     # deuda con prefijo comun: "Pago" y "Pago Stripe" son casos distintos
     d = tempfile.mkdtemp()
