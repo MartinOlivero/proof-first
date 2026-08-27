@@ -194,8 +194,9 @@ cuenta la prueba en vez de mostrarla, se vuelve al nivel 0.
 ### 6.3 El control de salida — hook `Stop`
 
 Se dispara cuando el agente principal va a dar por terminado el turno. Es un
-hook *prompt-based*: razona sobre lo que pasó en el turno en vez de comparar
-contra una lista fija de rutas.
+hook `command`: corre el detector determinista de `lib/deteccion.py` sobre
+las rutas tocadas en el turno (el mecanismo completo, con su porqué y su
+límite, está en §7).
 
 **Lógica de decisión, en orden:**
 
@@ -532,6 +533,6 @@ proof-first/
 | `PROOF.md` en el repo | Base local tipo SQLite | La evidencia debe ser auditable por terceros y viajar con el proyecto |
 | Verificador sin permiso de escritura de código | Verificador que puede arreglar | Si arregla, aprueba lo que él mismo arregló |
 | Coordenada, no copia de la prueba | Archivar capturas | Las copias también se pudren y nadie las mira |
-| Hook prompt-based | Lista de rutas por regex | Una lista fija se rompe con cualquier estructura inesperada |
+| Detector determinista de rutas (`lib/deteccion.py`) | Hook prompt-based (un modelo juzga cada cierre de turno) | Determinista y barato — no gasta una llamada a modelo en cada cierre de turno — y degrada con gracia sin git; el criterio completo con contexto vive en la skill |
 | La skill funciona sin hooks | Hooks obligatorios | Lo que es prompt corre en cualquier modelo; atar el criterio al hook lo encierra en un solo CLI |
 | Nombre `proof-first` | `witness`, `receipts`, `oob` | Nombra el método, no solo la herramienta, y contrasta directo con SDD. `receipts` ya está tomado por RDD. `witness` sobrevive como el nombre del verificador |
