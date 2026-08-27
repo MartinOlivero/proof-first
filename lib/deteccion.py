@@ -75,7 +75,7 @@ def clasificar(archivos):
         tokens = []
         current_token = []
         for char in ruta_bajo:
-            if char in "/_-. ":
+            if char in "/\\-_. ":
                 if current_token:
                     tokens.append("".join(current_token))
                     current_token = []
@@ -84,14 +84,23 @@ def clasificar(archivos):
         if current_token:
             tokens.append("".join(current_token))
 
+        # basename es el filename completo (ultimo componente del path)
+        basename = ruta_bajo.split("/")[-1].split("\\")[-1]
+
         for clave, cat in CATEGORIAS.items():
             # un patron dispara si es token exacto o un prefijo de un token
             # (ej: "migration" matchea "migrations", pero "rol" no matchea "controller")
+            # si el patron contiene un punto, matchea contra el basename
             for patron in cat["patrones"]:
-                for token in tokens:
-                    if token == patron or token.startswith(patron + "_") or token.startswith(patron + "s"):
+                if "." in patron:
+                    if basename == patron:
                         resultado.setdefault(clave, []).append(ruta)
                         break
+                else:
+                    for token in tokens:
+                        if token == patron or token.startswith(patron + "_") or token.startswith(patron + "s"):
+                            resultado.setdefault(clave, []).append(ruta)
+                            break
                 if ruta in resultado.get(clave, []):
                     break
     return resultado
@@ -158,6 +167,14 @@ def _autotest():
     assert clasificar(["app/control/index.ts"]) == {}, "control no es rol"
     assert clasificar(["lib/oracle_client.py"]) == {}, "oracle no es acl"
     assert clasificar(["components/Modal.tsx"]) == {}, "Modal no es nada"
+
+    # patterns con punto: filenames son caros
+    assert "deploy" in clasificar(["vercel.json"]), "vercel.json es deploy"
+    assert "deploy" in clasificar(["netlify.toml"]), "netlify.toml es deploy"
+    assert "deploy" in clasificar(["Dockerfile"]), "Dockerfile es deploy"
+
+    # backslash como separador (windows paths)
+    assert "auth" in clasificar(["src\\auth\\session.ts"]), "backslash-separated path"
 
     print("deteccion.py OK")
 
