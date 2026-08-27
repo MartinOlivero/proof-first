@@ -50,11 +50,13 @@ que te lo pidan.
 
 ## Con una afirmación — `/proof el checkout cobra de verdad`
 
-1. Identificá a qué categoría del catálogo pertenece
-   (`skills/proof-first/references/catalogo.md`).
-2. Lanzá el subagente `witness` con **solo** la afirmación, la categoría y los
-   archivos involucrados. **No le pases la conversación**: su contexto limpio es
-   el requisito, no un detalle.
+1. Identificá a qué categoría del catálogo pertenece y leé su fila completa
+   (`skills/proof-first/references/catalogo.md`): la prueba que vale, la
+   falsa prueba y el comando.
+2. Lanzá el subagente `witness` pasándole **solo** la afirmación, esa fila del
+   catálogo y los archivos involucrados. **No le pases la conversación**: su
+   contexto limpio es el requisito, no un detalle. El testigo no abre el
+   catálogo por su cuenta: si no le llega la fila, no la tiene.
 3. Mostrá el veredicto con el artefacto crudo, sin resumirlo.
 
 ## `/proof deuda` — lo que falta
