@@ -39,6 +39,11 @@ una persona, no una inferencia sobre un diff. **Sin hooks, la skill sigue
 funcionando igual**: el criterio vive ahí completo, los hooks solo lo vuelven
 obligatorio.
 
+Lo que todavía falta probar, dicho acá y no solo en inglés: nadie confirmó
+todavía, en una sesión real de Claude Code, que el propio Claude Code dispara
+estos hooks de verdad — esa confirmación (nivel 6) sigue pendiente, la tiene
+que hacer una persona.
+
 Instalación:
 
 ```bash
@@ -186,7 +191,7 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
 | **TDD** | Produces tests, but level 2 on the scale above when the same agent writes the test and the code: they share assumptions and blind spots. |
 | **RDD** (Receipt-Driven Development, from gentle-ai) | Reviews the *frozen code candidate* — a very elaborate level 3. It never leaves the code to check the world; proof-first exists to make that trip, out to level 5. |
 | **engram** | A searchable history across sessions and projects. `PROOF.md` is this project's present, versioned state, not a long-term memory store — complementary, not overlapping. |
-| **`saas-builder`** (same author) | Builds the product. Its own README names the gap on purpose: *"dev process → Superpowers owns this,"* and what Superpowers puts there is TDD — level 2. `proof-first` is the optional companion that covers what's expensive to get wrong. |
+| **`saas-builder`** (same author) | Builds the product. Its own README leaves the gap on purpose — its coverage table has a "Dev process — brainstorm, TDD, debug, git, review" row reading *"Superpowers owns this (not duplicated)"* — and what Superpowers puts there is TDD — level 2. `proof-first` is the optional companion that covers what's expensive to get wrong. |
 
 None of these compete with proof-first — none of them answer "does this,
 which claims to work, work, from the outside?" That question is this
@@ -194,20 +199,40 @@ plugin's whole job.
 
 ## Proven against its own rule
 
-`PROOF.md` in this repo is `proof-first` applied to itself: the `Stop` hook
-invoked exactly as Claude Code invokes it (a JSON payload on stdin, the JSON
-decision read back on stdout) across all four scenarios in the design spec —
-block on untested auth code, approve once the debt is declared, block again
-once a proven acta expires from a committed change, and approve unconditionally
-with no git at all. That's real level-4 evidence: the thing running, captured
-raw.
+`PROOF.md` in this repo is `proof-first` applied to itself, as two separate
+actas written through `lib/cuaderno.py` — the hook evidence and the witness
+evidence are different claims, over different files, so they aren't lumped
+into one:
 
-**What that evidence does *not* cover, and says so plainly:** whether Claude
-Code itself actually fires these hooks inside a live interactive session.
-Invoking the hook script directly proves the script's logic; it doesn't
-prove the harness wires it up the way `hooks/hooks.json` declares. That's
-level 6 — a person watching it happen in a real session — and it's still
-pending. See `PROOF.md`'s open item.
+- **The `Stop` hook**, invoked exactly as Claude Code invokes it (a JSON
+  payload on stdin, the decision read back on stdout), was put through four
+  situations: it blocks on untested auth code with no acta; it approves once
+  the debt is declared in `PROOF.md`; it blocks again once a proven acta's
+  fingerprint expires from a change that got committed; it approves
+  unconditionally with no git at all. These are four situations the hook was
+  exercised in — not literally "the four scenarios" from the design spec:
+  one of them (no git) isn't on that list, and the spec's own second
+  scenario is the witness, covered next as its own claim.
+- **The `witness` subagent** was run twice for real, reaching two of its
+  three possible verdicts. Against a Stripe webhook whose handler was an
+  empty `TODO`, it returned **❌ REFUTADO**, pasted the source in raw, and
+  found — unprompted — that the webhook signature was never verified either.
+  Against the same webhook fixed but with no credentials, server, or logs,
+  it returned **⚠️ NO VERIFICABLE**, with the raw Stripe permission error and
+  five concrete things missing and who has to supply each — it did not
+  fabricate a payment or a log just to reach "verified." Both runs
+  demonstrate the same contract: an inverted instruction (told to disprove,
+  not confirm), the raw artifact instead of a summary, no invention, no
+  hands (nothing edited but `PROOF.md`), and working from its catalogue row
+  instead of opening the catalogue itself.
+
+**What's still not exercised, stated plainly:** the third verdict, **✅
+PROBADO**, needs a real system running with real credentials to reach — the
+same level-6 gap below, not a separate one. And whether Claude Code itself
+fires these hooks inside a live interactive session: invoking the hook
+script directly proves the script's logic, not that the harness wires it up
+the way `hooks/hooks.json` declares. That confirmation needs a person,
+watching it happen in a real session. See `PROOF.md`'s open items.
 
 ## License
 
