@@ -1,0 +1,214 @@
+# proof-first
+
+**Your agent said it works. Who checked?**
+
+> The rule: never trust the agent's report, only an artifact you can observe
+> from outside the agent. A green test suite is the agent grading its own
+> homework. A charge appearing in the Stripe dashboard is not.
+
+<details>
+<summary>🇪🇸 <strong>¿Hablás español?</strong> — resumen rápido</summary>
+
+<br>
+
+**proof-first** aplica una sola regla: nunca confiar en el reporte del
+agente, solo en un artefacto observable desde afuera de él. Un test verde
+escrito por el mismo agente que escribió el código es el alumno corrigiendo
+su propio examen; un cargo real en el panel de Stripe, no.
+
+Cuando el turno tocó código caro — plata, login, datos de usuario, permisos,
+deploy, mails, backup, tareas programadas o una integración externa — el hook
+`Stop` frena el cierre si no hay evidencia de nivel 5 (un tercero sin interés
+que lo confirme) registrada en `PROOF.md`. El hook es un detector determinista
+por ruta de archivo, no un modelo que opina: por eso mismo solo ve ocho de las
+diez categorías del catálogo (integraciones externas no tiene una huella de
+archivo confiable) y pide `/proof` a mano para esa. La válvula de escape:
+declarar la deuda en `PROOF.md`, con quién la asumió y cuándo, alcanza para
+cerrar el turno. No hay forma de esquivar la pregunta — sí de responderla con
+sinceridad.
+
+El subagente `witness` es quien sale a buscar la prueba: arranca sin el
+contexto de cómo se construyó el código, con la consigna invertida
+("demostrá que esto NO funciona") y sin permiso para editar nada más que
+`PROOF.md`.
+
+**Sin git, el hook nunca bloquea *por código detectado*: aprueba siempre**,
+porque no puede saber qué archivo se tocó — pero un 🔴 BLOQUEANTE escrito a
+mano en `PROOF.md` frena igual, con o sin git, porque esa es una decisión de
+una persona, no una inferencia sobre un diff. **Sin hooks, la skill sigue
+funcionando igual**: el criterio vive ahí completo, los hooks solo lo vuelven
+obligatorio.
+
+Instalación:
+
+```bash
+/plugin marketplace add MartinOlivero/proof-first
+/plugin install proof-first
+```
+
+Hecho por **Martín Olivero / [IamAutom](https://iamautom.com)**.
+
+</details>
+
+## The problem
+
+An agent writes code faster than a human can read it. The bottleneck stopped
+being *writing* — it's *verifying*. When the agent says "done, the payment
+works now," that sentence isn't evidence: it's a claim from the same party
+that did the work. And the usual way to "verify" it — a green test the same
+agent wrote — is the student grading their own exam. It always passes.
+
+Existing methods don't close this gap. Spec-Driven Development orders *what*
+to build, but a prose spec isn't machine-verifiable — someone still has to
+read it and judge. TDD produces tests, but if the agent that wrote the code
+also wrote the test, they share the same assumptions and the same blind
+spots. Neither answers the question that matters once the system is actually
+running: **does this that claims to work, work, from the outside?**
+
+## The scale
+
+One axis orders everything: **the distance between who claims and who
+checks.**
+
+| Level | What it is | Who checks |
+|:---:|---|---|
+| 0 | "Done, it's implemented" | Nobody. It's a claim. |
+| 1 | Shows the code it wrote | Nobody. Showing isn't proving. |
+| 2 | Green test written by the same agent | The builder. Self-approved. |
+| 3 | Pre-existing test, or written by the verifier | Someone else. |
+| 4 | The thing running: a screenshot, a log, a `curl` | The machine. The fact, not the account of it. |
+| 5 | A disinterested third party confirms it | Stripe, the mail server, DNS. |
+| 6 | A real person used it and it worked | Reality. |
+
+0 through 2 is trusting. 3 and up is checking.
+
+## The rule
+
+```
+Money, auth, user data, permissions, deploy, messages, backup,
+cron, external integrations
+    → level 5 or it isn't done
+Everything else
+    → level 4 is enough
+```
+
+**The more expensive it is to be wrong, the further the proof has to stand
+from the agent.** All ten categories below are level 5.
+
+## The catalogue
+
+For each kind of work: the proof that counts, and the false proof usually
+accepted instead — the ❌ column is the one people screenshot and share,
+because it's the one that looks fine until it isn't. Full detail, commands
+included, in [`skills/proof-first/references/catalogo.md`](skills/proof-first/references/catalogo.md).
+
+| # | Category | ✅ Proof that counts | ❌ False proof |
+|---|---|---|---|
+| 1 | Charge / payment | The charge exists on the provider's dashboard **and** the webhook reached the server | The user saw the "thanks for your purchase" screen |
+| 2 | Login / auth | Real session from a clean browser **+ an unauthorized request that gets rejected** | The already-logged-in user got in |
+| 3 | Saving data | The row is in the database, queried **from outside the app** | The screen shows the value |
+| 4 | Deleting data | The row **is gone**, queried from outside | It disappeared from the screen |
+| 5 | Permissions / multi-tenant | User B **cannot** see user A's data | User A can see their own data |
+| 6 | Mail / notifications | The message landed in a real inbox and opens | The API returned `200 OK` |
+| 7 | Deploy / release | `curl` to the public domain **from outside the machine**, on the new version | It works on localhost / the build passed |
+| 8 | Scheduled task / cron | It ran **on its own**, on time, unattended, and logged it | It ran when triggered by hand |
+| 9 | External integration | Real response from the third-party API, in production | The mock returned what was expected |
+| 10 | Backup | **A tested restore** | The backup file exists |
+
+## What it does
+
+- **The `Stop` hook** (`hooks/stop_gate.py`) is a plain command hook — no
+  model, no judgment call. It's a deterministic detector: it reads `git
+  status` for uncommitted changes and matches their paths against the
+  catalogue's patterns (`lib/deteccion.py`) — separately, it also recomputes
+  the fingerprint of every file a proven *acta* covers, committed or not, so
+  an acta expires the moment its code changes, whether or not that change is
+  staged. It catches **eight of the ten**
+  categories this way — payment, auth, permissions, deploy, messages, backup,
+  scheduled tasks, and a single `datos` key that covers *saving* and
+  *deleting* user data together (catalogue entries #3 and #4 — the same
+  files, migrations and schemas, trigger both). **External integrations
+  (#9) has no reliable file signature** — it can live in any module that
+  calls a third-party API — so the hook can't catch it on its own; that one
+  needs a person to ask for it with `/proof`. That's a declared limit, not a
+  silent hole: a hook that's honest about what it can't see beats one that
+  looks like it covers more than it does.
+- **The `witness` subagent** (`agents/witness.md`) is who actually goes and
+  gets the proof. It starts with no memory of how the code was built, works
+  under an inverted instruction — *prove this does NOT work* — and can't
+  edit project code, only write to `PROOF.md`. It receives the catalogue row
+  for its category in the prompt; it never opens the catalogue file itself.
+- **`PROOF.md`** (`lib/cuaderno.py`) is the log at the project root, checked
+  into git so a third party can audit it. What's proven gets an *acta* with
+  the proof's *coordinate* (a charge ID, a status code, a user ID) — never a
+  copy, because copies rot too — and a fingerprint (`lib/huella.py`) over the
+  files it covers, so the acta expires on its own the moment those files
+  change again. What's knowingly left unproven gets a debt entry instead,
+  with who decided that and when.
+- **The escape valve** is what makes the hook usable at all: it can't be
+  dodged, but it can be answered. Declaring the debt in `PROOF.md` — who
+  decided to skip the proof, and the date — is enough to close the turn.
+  Without that valve the hook would be unbearable and get uninstalled by day
+  two, and an uninstalled plugin protects nothing.
+
+## Install
+
+```bash
+/plugin marketplace add MartinOlivero/proof-first
+/plugin install proof-first
+```
+
+Then just work normally. The `proof-first` skill activates on its own
+whenever the conversation is about verifying something works; the `Stop`
+hook (every turn) and the session-start report (on startup and resume) need
+nothing further once the plugin is installed. Ask on demand with `/proof` (status, or
+`/proof <a claim>` to send `witness` after one specific thing).
+
+## How it degrades
+
+- **No git in the project:** the hook can't tell which files changed, so it
+  never blocks *on that basis* — it approves. An explicit 🔴 `BLOQUEANTE`
+  entry someone wrote into `PROOF.md` still blocks either way, git or not,
+  because that's a person's decision, not an inference from a diff. This is
+  a deliberate trade-off: a false approve on undetectable changes is
+  recoverable, a false block on a project the hook can't reason about isn't.
+- **No hooks at all** (a CLI that doesn't support them, or the plugin's hook
+  disabled): the `proof-first` skill still works exactly the same. The
+  criterion — the scale, the rule, the catalogue — lives entirely in
+  `skills/proof-first/SKILL.md`; the hook only adds *obligation* on top of a
+  method that already stands on its own.
+
+## Where it fits
+
+| Method | What it covers |
+|---|---|
+| **SDD** (Spec-Driven Development) | Orders *what* to build. A prose spec still needs a human to read and judge it — it doesn't verify anything once the system runs. |
+| **TDD** | Produces tests, but level 2 on the scale above when the same agent writes the test and the code: they share assumptions and blind spots. |
+| **RDD** (Receipt-Driven Development, from gentle-ai) | Reviews the *frozen code candidate* — a very elaborate level 3. It never leaves the code to check the world; proof-first exists to make that trip, out to level 5. |
+| **engram** | A searchable history across sessions and projects. `PROOF.md` is this project's present, versioned state, not a long-term memory store — complementary, not overlapping. |
+| **`saas-builder`** (same author) | Builds the product. Its own README names the gap on purpose: *"dev process → Superpowers owns this,"* and what Superpowers puts there is TDD — level 2. `proof-first` is the optional companion that covers what's expensive to get wrong. |
+
+None of these compete with proof-first — none of them answer "does this,
+which claims to work, work, from the outside?" That question is this
+plugin's whole job.
+
+## Proven against its own rule
+
+`PROOF.md` in this repo is `proof-first` applied to itself: the `Stop` hook
+invoked exactly as Claude Code invokes it (a JSON payload on stdin, the JSON
+decision read back on stdout) across all four scenarios in the design spec —
+block on untested auth code, approve once the debt is declared, block again
+once a proven acta expires from a committed change, and approve unconditionally
+with no git at all. That's real level-4 evidence: the thing running, captured
+raw.
+
+**What that evidence does *not* cover, and says so plainly:** whether Claude
+Code itself actually fires these hooks inside a live interactive session.
+Invoking the hook script directly proves the script's logic; it doesn't
+prove the harness wires it up the way `hooks/hooks.json` declares. That's
+level 6 — a person watching it happen in a real session — and it's still
+pending. See `PROOF.md`'s open item.
+
+## License
+
+[MIT](./LICENSE) — Copyright © 2026 Martín Olivero / IamAutom.
