@@ -17,11 +17,11 @@ Generado y mantenido por proof-first.
 <summary>▸ PROBADO (2)</summary>
 
 ✅ 27/08 · El hook Stop en cuatro situaciones reales (no las 4 de la spec §13) · nivel 4
-   prueba: stop_gate.py invocado con JSON por stdin, 4 situaciones: auth sin acta -> {"decision":"block","reason":"...Login / auth (nivel 5): src/auth/login.ts..."} · con deuda declarada -> {"decision":"approve"} · acta vencida tras commit -> {"decision":"block","reason":"...quedaron vencidas porque cambiaron los archivos...src/auth/login.ts..."} · sin git -> {"decision":"approve"}
+   prueba: A bloquea, reason incluye "Login / auth (nivel 5): src/auth/login.ts" · B aprueba con deuda declarada: {"decision": "approve"} · C vuelve a bloquear, reason incluye "quedaron vencidas porque cambiaron los archivos que cubrían" · D aprueba sin git: {"decision": "approve"} — las 4 corridas completas, crudas, en docs/evidencia/hook-runs.md
    cubre: hooks/stop_gate.py, lib/deteccion.py, lib/cuaderno.py, lib/huella.py · huella: 14c97b
 
-✅ 27/08 · El testigo (witness) en dos casos reales: REFUTADO y NO VERIFICABLE · nivel 4
-   prueba: witness corrido 2 veces: caso 1 REFUTADO sobre handler vacio "if(evento.type==='checkout.session.completed'){ /* TODO */ } return new Response('ok')", hallazgo propio: firma del webhook nunca verificada · caso 2 NO VERIFICABLE sobre el mismo webhook ya corregido, sin credenciales: mcp__stripe__stripe_api_read GetCharges -> "Error: Your API key does not have the required permissions for 'GetCharges'.", listo 5 cosas que faltan y quien las provee, "No fabrico el pago ni el log para poder verificar"
+✅ 27/08 · El testigo (witness), corrido a mano por el controlador, en dos casos reales: REFUTADO y NO VERIFICABLE · nivel 4
+   prueba: Corrido a mano por el controlador, fuera de la maquinaria del plugin — caso 1: "VEREDICTO DEVUELTO: ❌ REFUTADO" sobre "// TODO: marcar el pedido como pagado", hallazgo propio: firma del webhook nunca verificada · caso 2: "VEREDICTO DEVUELTO: ⚠️ NO VERIFICABLE", "Error: Your API key does not have the required permissions for 'GetCharges'.", listó 5 cosas concretas y quién las provee — raws completos en docs/evidencia/witness-run-1.md y docs/evidencia/witness-run-2.md
    cubre: agents/witness.md · huella: c7d83a
 
 </details>

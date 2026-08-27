@@ -39,10 +39,13 @@ una persona, no una inferencia sobre un diff. **Sin hooks, la skill sigue
 funcionando igual**: el criterio vive ahí completo, los hooks solo lo vuelven
 obligatorio.
 
-Lo que todavía falta probar, dicho acá y no solo en inglés: nadie confirmó
-todavía, en una sesión real de Claude Code, que el propio Claude Code dispara
-estos hooks de verdad — esa confirmación (nivel 6) sigue pendiente, la tiene
-que hacer una persona.
+Lo que todavía falta probar, dicho acá y no solo en inglés — dos cosas
+abiertas, no una: nadie confirmó todavía, en una sesión real de Claude Code,
+que el propio Claude Code dispara estos hooks de verdad (nivel 6, pendiente
+de una persona); y el tercer veredicto posible del testigo, ✅ PROBADO, nunca
+se ejercitó — hace falta un sistema real corriendo con credenciales reales
+para llegar a él, el mismo hueco de nivel 6. Los dos quedan anotados como
+abiertos en `PROOF.md`.
 
 Instalación:
 
@@ -213,18 +216,23 @@ into one:
   exercised in — not literally "the four scenarios" from the design spec:
   one of them (no git) isn't on that list, and the spec's own second
   scenario is the witness, covered next as its own claim.
-- **The `witness` subagent** was run twice for real, reaching two of its
-  three possible verdicts. Against a Stripe webhook whose handler was an
-  empty `TODO`, it returned **❌ REFUTADO**, pasted the source in raw, and
-  found — unprompted — that the webhook signature was never verified either.
-  Against the same webhook fixed but with no credentials, server, or logs,
-  it returned **⚠️ NO VERIFICABLE**, with the raw Stripe permission error and
-  five concrete things missing and who has to supply each — it did not
-  fabricate a payment or a log just to reach "verified." Both runs
-  demonstrate the same contract: an inverted instruction (told to disprove,
-  not confirm), the raw artifact instead of a summary, no invention, no
-  hands (nothing edited but `PROOF.md`), and working from its catalogue row
-  instead of opening the catalogue itself.
+- **The `witness` subagent** was run twice for real — by hand, by the
+  project's controller, outside the plugin's own machinery (the plugin has
+  never fired inside a live Claude Code session; that's the open item right
+  below) — reaching two of its three possible verdicts. Against a Stripe
+  webhook whose handler was an empty `TODO`, it returned **❌ REFUTADO**,
+  pasted the source in raw, and found — unprompted — that the webhook
+  signature was never verified either. Against the same webhook fixed but
+  with no credentials, server, or logs, it returned **⚠️ NO VERIFICABLE**,
+  with the raw Stripe permission error and five concrete things missing and
+  who has to supply each — it did not fabricate a payment or a log just to
+  reach "verified." Both runs demonstrate the same contract: an inverted
+  instruction (told to disprove, not confirm), the raw artifact instead of a
+  summary, no invention, no hands (nothing edited but `PROOF.md`), and
+  working from its catalogue row instead of opening the catalogue itself.
+  Full raw transcripts of both runs, and of the hook's four situations, are
+  tracked in [`docs/evidencia/`](docs/evidencia/) — `PROOF.md`'s coordinates
+  point there, not at anything gitignored.
 
 **What's still not exercised, stated plainly:** the third verdict, **✅
 PROBADO**, needs a real system running with real credentials to reach — the
