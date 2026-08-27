@@ -3,8 +3,11 @@
 Muestra el estado del cuaderno al abrir la sesion.
 
 Por que existe: sin esto PROOF.md existe pero nadie lo abre, y la memoria entre
-sesiones no sirve de nada. Cinco lineas, no mas: si no se entiende de un
-vistazo donde estas parado, fallo.
+sesiones no sirve de nada.
+
+Presupuesto: cinco lineas (header + cuatro items). Si hay mas items que lugar,
+los ultimos cuatro estan dedicados a bloqueantes y deudas por prioridad, y si
+algo queda afuera, la ultima linea dice cuantos no entraron.
 
 Salida: JSON con systemMessage, o nada si no hay cuaderno.
 """
@@ -18,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import cuaderno  # noqa: E402
 import huella  # noqa: E402
 
-MAX_ITEMS = 3
+MAX_ITEMS = 4  # ponytail: changed to total budget, not per-category
 
 
 def resumen(raiz):
@@ -36,14 +39,26 @@ def resumen(raiz):
         cabecera += f" · {len(fuera)} vencida{'s' if len(fuera) != 1 else ''}"
     lineas.append(cabecera)
 
-    for b in datos["bloqueante"][:MAX_ITEMS]:
-        lineas.append(f"🔴 {b}")
-    for s in datos["sin_probar"][:MAX_ITEMS]:
-        lineas.append(f"⚠️ {s}")
-
+    # Collect all items in priority order: blockers, debts, then expired line
+    items = []
+    for b in datos["bloqueante"]:
+        items.append(f"🔴 {b}")
+    for s in datos["sin_probar"]:
+        items.append(f"⚠️ {s}")
     if fuera:
-        nombres = ", ".join(a["que"] for a in fuera[:MAX_ITEMS])
-        lineas.append(f"↺ volver a probar: {nombres}")
+        nombres = ", ".join(a["que"] for a in fuera)
+        items.append(f"↺ volver a probar: {nombres}")
+
+    # Budget: 5 lines total, 1 is header, so 4 for items
+    if len(items) <= MAX_ITEMS:
+        # All items fit, no omission line needed
+        lineas.extend(items)
+    else:
+        # Some items don't fit; show what fits in (MAX_ITEMS - 1) lines, then omission line
+        shown = MAX_ITEMS - 1
+        lineas.extend(items[:shown])
+        omitted = len(items) - shown
+        lineas.append(f"… y {omitted} más sin mostrar (mirá PROOF.md)")
 
     return "\n".join(lineas)
 
@@ -57,6 +72,9 @@ def main():
 
     try:
         entrada = json.load(sys.stdin)
+        # Si el JSON no es un objeto (ej: array), tratar como entrada vacia.
+        if not isinstance(entrada, dict):
+            entrada = {}
     except (json.JSONDecodeError, ValueError):
         entrada = {}
     raiz = entrada.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
@@ -66,8 +84,12 @@ def main():
     except Exception:  # noqa: BLE001
         texto = None
 
-    if texto:
-        print(json.dumps({"systemMessage": texto}, ensure_ascii=False))
+    try:
+        if texto:
+            print(json.dumps({"systemMessage": texto}, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
+
     sys.exit(0)
 
 
@@ -103,6 +125,41 @@ def _autotest():
     r3 = resumen(d)
     assert "🔴" in r3 and "Falta decidir el borrado" in r3, r3
     assert "⚠️" in r3 and "Checkout" in r3, r3
+
+    # 4 blockers and 4 debts: output is at most 5 lines, last line reports omitted
+    d2 = tempfile.mkdtemp()
+    proof2 = os.path.join(d2, "PROOF.md")
+    datos2 = cuaderno.leer(proof2)
+    for i in range(1, 5):
+        datos2["bloqueante"].append(f"Bloqueante {i}")
+    for i in range(1, 5):
+        datos2["sin_probar"].append(f"Deuda {i} — sin nivel 5 — deuda asumida por T 27/08")
+    cuaderno.escribir(proof2, datos2)
+    r4 = resumen(d2)
+    lines4 = r4.split("\n")
+    assert len(lines4) <= 5, f"Expected at most 5 lines, got {len(lines4)}: {r4}"
+    assert "más sin mostrar" in lines4[-1], f"Last line should report omitted items: {r4}"
+
+    # Exactly 4 items (3 blockers + 1 expired): no omission line needed
+    d3 = tempfile.mkdtemp()
+    proof3 = os.path.join(d3, "PROOF.md")
+    open(os.path.join(d3, "b.py"), "w").write("y=1\n")
+    h3 = huella.calcular(["b.py"], d3)
+    cuaderno.agregar_acta(proof3, que="Test", nivel=5, prueba="test ok",
+                          cubre=["b.py"], huella=h3, fecha="27/08")
+    # Change file to create an expired acta
+    open(os.path.join(d3, "b.py"), "w").write("y=2\n")
+    datos3 = cuaderno.leer(proof3)
+    datos3["bloqueante"].append("Block 1")
+    datos3["bloqueante"].append("Block 2")
+    datos3["bloqueante"].append("Block 3")
+    cuaderno.escribir(proof3, datos3)
+    r5 = resumen(d3)
+    lines5 = r5.split("\n")
+    # Should have: header + 3 blockers + 1 expired line = 5 lines, no omission
+    assert len(lines5) == 5, f"Expected 5 lines, got {len(lines5)}: {r5}"
+    assert "más sin mostrar" not in r5, f"Should not have omission line: {r5}"
+    assert "↺" in r5, f"Should have expired line: {r5}"
 
     print("session_report.py OK")
 
