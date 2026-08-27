@@ -42,12 +42,15 @@ Todo lo demás
 
 De esas diez categorías caras, el hook `Stop` detecta ocho solo mirando qué
 archivos tocó el turno: pago, auth, datos, permisos, deploy, mensajes,
-backup y tareas programadas. **Integraciones externas es nivel 5 también,
-pero no tiene una huella de archivo confiable** — puede vivir en cualquier
-módulo que llame a una API de terceros — así que el hook no la va a frenar
-solo. Ahí depende de que la persona la pida con `/proof`. Es un límite
-declarado, no un agujero: mejor un hook honesto sobre lo que no puede ver
-que uno que aparenta cubrir más de lo que cubre.
+backup y tareas programadas. Esas ocho cubren las diez del catálogo porque
+la clave `datos` funde **guardar** y **borrar** datos de usuario en una
+sola — los mismos archivos (migraciones, esquemas, modelos) disparan las
+dos. **Integraciones externas es nivel 5 también, pero no tiene una huella
+de archivo confiable** — puede vivir en cualquier módulo que llame a una
+API de terceros — así que el hook no la va a frenar solo. Ahí depende de
+que la persona la pida con `/proof`. Es un límite declarado, no un agujero:
+mejor un hook honesto sobre lo que no puede ver que uno que aparenta cubrir
+más de lo que cubre.
 
 ## Cómo se consigue cada prueba
 

@@ -295,9 +295,17 @@ lado. Que esté en git no es una limitación: es la característica.
 
 ## 7. Cómo se detecta "lo caro"
 
-El hook `Stop` es prompt-based: un modelo juzga con criterio, no con una lista
-de carpetas. Una lista de rutas se rompe con cualquier estructura de proyecto
-que no sea la esperada.
+El hook `Stop` es un hook de tipo `command`: corre `lib/deteccion.py`, un
+detector determinista sobre rutas de archivo, no un modelo que juzga con
+criterio. Es deliberado: determinista y barato — no gasta una llamada a
+modelo en cada cierre de turno — y degrada con gracia sin git (ver §10).
+
+Ese mismo mecanismo tiene un límite: emparejar por ruta no puede ver una
+categoría sin huella de archivo confiable — integraciones externas — ni
+separar guardar de borrar datos de usuario, porque comparten los mismos
+archivos. El criterio completo vive en la skill `proof-first`
+(`SKILL.md`), que sí juzga con contexto; el detector es la red de
+seguridad, no el criterio.
 
 **Categorías caras** (nivel 5): cobro/pago, auth/sesión, escritura o borrado de
 datos de usuario, permisos, deploy/publicación, envío de mensajes a personas,

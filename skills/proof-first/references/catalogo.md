@@ -7,9 +7,10 @@ para señalar que está mal, sino para mostrar por qué parece que está bien.
 
 Las diez categorías son **nivel 5**: hace falta un tercero sin interés que lo
 confirme (ver la escala en `SKILL.md`). El hook `Stop` detecta ocho de las
-diez solo mirando archivos; la entrada 9 (integración externa) no tiene una
-huella de archivo confiable y hay que pedirla a mano con `/proof` — el
-porqué está en la sección "La regla" de `SKILL.md`.
+diez solo mirando archivos (las entradas 3 y 4 comparten una sola clave,
+`datos`); la entrada 9 (integración externa) no tiene una huella de archivo
+confiable y hay que pedirla a mano con `/proof` — el porqué completo está
+en la sección "La regla" de `SKILL.md`.
 
 ---
 
