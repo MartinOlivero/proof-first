@@ -1,0 +1,17 @@
+{
+  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop_gate.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
