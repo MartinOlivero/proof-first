@@ -90,7 +90,8 @@ Del 0 al 2 se está confiando. Del 3 para arriba, comprobando.
 ### Regla operativa
 
 ```
-Plata, auth, datos de usuario, permisos, deploy  →  nivel 5 o no está hecho
+Plata, auth, datos de usuario, permisos, deploy, mensajes, backup,
+cron, integraciones externas                     →  nivel 5 o no está hecho
 Todo lo demás                                    →  nivel 4 alcanza
 ```
 
@@ -167,8 +168,15 @@ detalle de implementación.
 arreglaría y después aprobaría lo que él mismo arregló. Separación de poderes:
 uno construye, otro comprueba, ninguno hace las dos cosas.
 
-Tiene un único permiso de escritura: `PROOF.md`. Es el escribano — el único que
-puede labrar un acta.
+No tiene la herramienta `Write`: no puede crear ni editar ningún archivo. Su
+única escritura posible es correr la CLI de `lib/cuaderno.py`, que es lo que
+labra el acta en `PROOF.md`. Sigue siendo el escribano, pero escribe por un
+solo caño, y ese caño solo sabe escribir actas y deudas.
+
+El lanzador (`/proof`, o el agente principal después de un bloqueo) le pasa en
+el prompt la **ruta absoluta** de `cuaderno.py` y de `PROOF.md`:
+`${CLAUDE_PLUGIN_ROOT}` no se sustituye fuera de hooks y MCP, así que el
+testigo no tiene forma de deducir dónde está instalado el plugin.
 
 **Devuelve una de tres cosas:**
 
@@ -193,18 +201,22 @@ cuenta la prueba en vez de mostrarla, se vuelve al nivel 0.
 ### 6.3 El control de salida — hook `Stop`
 
 Se dispara cuando el agente principal va a dar por terminado el turno. Es un
-hook *prompt-based*: razona sobre lo que pasó en el turno en vez de comparar
-contra una lista fija de rutas.
+hook `command`: corre el detector determinista de `lib/deteccion.py` sobre
+las rutas tocadas en el turno (el mecanismo completo, con su porqué y su
+límite, está en §7).
 
 **Lógica de decisión, en orden:**
 
 1. ¿Hay algo marcado `🔴 BLOQUEANTE` sin resolver en `PROOF.md`?
-   → `block`, indicando qué falta decidir.
-2. ¿El turno tocó alguna categoría cara (§4) sin acta vigente que la cubra?
-   → `block`, indicando qué categoría y qué nivel se necesita.
-3. ¿Algún cambio del turno invalidó un acta existente (§8)?
-   → marcar el acta como vencida. Si la categoría es cara, `block`.
-4. En cualquier otro caso → `approve`.
+   → `block`, indicando qué falta decidir. Se evalúa antes que nada, incluso
+   sin git: es la decisión de una persona, no una inferencia sobre un diff.
+2. ¿Sin git? → `approve`. No se puede saber qué se tocó (§10).
+3. ¿Algún cambio invalidó un acta que cubría código caro (§8)?
+   → `block`, nombrando las actas vencidas. Va antes que el punto 4 para que un
+   acta vencida no cuente como cobertura del archivo que cubría.
+4. ¿El turno tocó alguna categoría cara (§4) sin acta vigente ni deuda
+   declarada que la cubra? → `block`, indicando qué categoría y qué nivel.
+5. En cualquier otro caso → `approve`.
 
 **La válvula de escape (crítica para que se use):**
 
@@ -217,18 +229,29 @@ Declarar la deuda es suficiente para pasar. Ignorarla, no.
 Esto evita el fracaso más probable del plugin: que sea insoportable y lo
 desinstalen. La disciplina no está en impedir, está en que **quede escrito**.
 
-**Anti-bucle:** una misma afirmación bloquea una sola vez por turno. Al segundo
-intento el hook ofrece directamente declarar la deuda.
+**Anti-bucle:** el hook bloquea una sola vez por turno. Claude Code marca la
+segunda pasada con `stop_hook_active: true`, y ahí el hook aprueba siempre,
+diciendo en el `systemMessage` qué quedó sin evidencia. Es una invariante
+absoluta y no tiene excepciones: si el agente no puede escribir `PROOF.md`
+—permisos, disco de solo lectura, modo plan, un usuario que dice que no— sin
+esta salida el turno no cerraría nunca. Un hook no puede dejar encerrado al
+usuario.
 
 ### 6.4 El parte de arranque — hook `SessionStart`
 
 Imprime el estado del cuaderno al abrir la sesión. Cinco líneas, no más:
 
 ```
-proof-first · 3 actas vigentes · 1 vencida (tocaste src/auth el 25/08)
-🔴 1 bloqueante: falta decidir si el borrado es real o lógico
-⚠️ 1 sin probar: checkout Stripe (necesita nivel 5)
+proof-first · 3 actas vigentes · 1 vencida
+🔴 Falta decidir si el borrado es real o lógico
+⚠️ Checkout Stripe — necesita nivel 5, tiene nivel 2 — deuda asumida por Tincho 27/08
+⬜ Recuperar contraseña
+↺ volver a probar: Login con Google (venció el 25/08)
 ```
+
+Cuatro items como máximo, en ese orden de prioridad —bloqueantes, deudas,
+abiertos, actas vencidas—; si no entran, la última línea dice cuántos quedaron
+afuera.
 
 Sin esto, el cuaderno existe pero nadie lo abre.
 
@@ -272,7 +295,7 @@ lado. Que esté en git no es una limitación: es la característica.
 
 ✅ 27/08 · Login con Google · nivel 5
    prueba: sesión creada, user_id 8814 en Auth0 · sesión anónima rechazada 401
-   cubre: src/auth/*.ts · huella: a3f9c1
+   cubre: src/auth/sesion.ts, src/auth/token.ts · huella: a3f9c1
 
 </details>
 ```
@@ -284,6 +307,10 @@ lado. Que esté en git no es una limitación: es la característica.
 - `⏸️ POSTERGADO` guarda **quién** lo decidió y **cuándo**. La diferencia entre
   "lo postergamos a propósito" y "nos olvidamos" es la información más valiosa
   del archivo, y hoy no la registra nadie.
+- **`cubre` son archivos, no patrones.** Un comodín (`src/auth/*.ts`) o un
+  directorio no se pueden abrir para calcular su huella: el cálculo cae a un
+  valor constante y el acta queda certificando para siempre. `lib/cuaderno.py`
+  rechaza esas entradas al escribir el acta.
 - **El acta no guarda la prueba: guarda la coordenada de la prueba.** No se
   archivan capturas ni copias —también se pudren, y nadie las mira—. Se guarda
   cómo volver a mirarlo hoy: el ID del cargo, el status, el usuario. Es una cita
@@ -294,9 +321,17 @@ lado. Que esté en git no es una limitación: es la característica.
 
 ## 7. Cómo se detecta "lo caro"
 
-El hook `Stop` es prompt-based: un modelo juzga con criterio, no con una lista
-de carpetas. Una lista de rutas se rompe con cualquier estructura de proyecto
-que no sea la esperada.
+El hook `Stop` es un hook de tipo `command`: corre `lib/deteccion.py`, un
+detector determinista sobre rutas de archivo, no un modelo que juzga con
+criterio. Es deliberado: determinista y barato — no gasta una llamada a
+modelo en cada cierre de turno — y degrada con gracia sin git (ver §10).
+
+Ese mismo mecanismo tiene un límite: emparejar por ruta no puede ver una
+categoría sin huella de archivo confiable — integraciones externas — ni
+separar guardar de borrar datos de usuario, porque comparten los mismos
+archivos. El criterio completo vive en la skill `proof-first`
+(`SKILL.md`), que sí juzga con contexto; el detector es la red de
+seguridad, no el criterio.
 
 **Categorías caras** (nivel 5): cobro/pago, auth/sesión, escritura o borrado de
 datos de usuario, permisos, deploy/publicación, envío de mensajes a personas,
@@ -322,15 +357,22 @@ de los frenos que se cambiaron en julio.
 **Mecanismo:** cada acta guarda la lista de archivos que cubre y una huella de
 su contenido.
 
-- Con git: `git hash-object` sobre cada archivo cubierto, combinados.
-- Sin git: SHA-256 del contenido concatenado.
+- **SHA-256 siempre, con git o sin git** (`lib/huella.py`): nombre + contenido
+  de cada archivo cubierto, ordenados para que el resultado no dependa del
+  orden en que se los pasen. Se descartó usar `git hash-object` cuando hay git:
+  `hashlib` funciona igual en un proyecto sin git, en Windows y en una carpeta
+  suelta, y la portabilidad vale más que reusar git acá. Un solo camino de
+  código es además un solo camino que probar.
 - Se guardan los primeros 6 caracteres, suficiente para detectar cambio.
+- Un archivo borrado o ilegible cuenta como cambio: el acta que lo cubría deja
+  de valer, que es lo correcto.
 
 El cálculo se hace en Python (portable entre macOS, Linux y Windows), siguiendo
 la convención que ya usa `legal-docs` con `check-vigencia.py`.
 
-Al arrancar la sesión, si la huella no coincide, el acta aparece tachada con la
-fecha en que dejó de valer. Sin que nadie se acuerde de nada.
+Al arrancar la sesión, si la huella no coincide, el parte lista el acta como
+vencida con la fecha del último cambio de los archivos que cubría —la fecha en
+que dejó de valer—. Sin que nadie se acuerde de nada.
 
 ---
 
@@ -372,12 +414,12 @@ the witness (contexto limpio, consigna invertida, sin manos)
 | Situación | Comportamiento |
 |---|---|
 | El proyecto no usa git | Huella por SHA-256 del contenido |
-| `PROOF.md` no existe | Se crea en el primer bloqueo, no antes |
+| `PROOF.md` no existe | El hook lo lee como cuaderno vacío y no lo crea. Nace solo cuando se escribe la primera acta o la primera deuda (`lib/cuaderno.py`), que es lo primero que pasa después de un bloqueo |
 | El turno no tocó nada caro | El plugin es invisible: no imprime, no frena |
 | El turno fue solo conversación | No interviene |
 | El verificador no tiene credenciales | `no verificable`, con la lista exacta de lo que falta |
 | El usuario interrumpe a mitad | El acta no se escribe. No hay actas parciales |
-| Bloqueo repetido sobre lo mismo | Al segundo intento se ofrece declarar la deuda |
+| Bloqueo repetido sobre lo mismo | El hook bloquea una sola vez por turno. Claude Code marca la segunda pasada con `stop_hook_active: true` y ahí el hook aprueba siempre, diciendo en el `systemMessage` qué quedó sin evidencia (§6.3) |
 | Proyecto ajeno sin `PROOF.md` | Funciona igual; propone crearlo, no lo impone |
 
 ---
@@ -459,16 +501,33 @@ el contenido.
 
 PFD se verifica con su propia regla, o no vale nada.
 
-**Nivel 4 mínimo, obligatorio antes de publicar.** Una sesión real, grabada, en
-un proyecto de verdad, donde:
+**Nivel 4 mínimo.** Los cuatro pasos, mostrados en crudo:
 
-1. Se toca un archivo de pagos → el hook frena. *(evidencia: la transcripción)*
+1. Se toca un archivo de pagos → el hook frena.
 2. Se invoca al verificador → devuelve `no verificable` por falta de credenciales.
 3. Se asume la deuda → queda escrita en `PROOF.md` con fecha. *(evidencia: el diff)*
 4. Se toca de nuevo el archivo cubierto por un acta → el acta aparece vencida.
 
 Si alguno de esos cuatro pasos no se puede mostrar en crudo, el plugin no está
 terminado.
+
+**Dos umbrales distintos, y conviene no confundirlos:**
+
+- **Listo para mergear:** la evidencia de nivel 4 está completa —los scripts
+  invocados con el mismo contrato JSON que usa el harness, el testigo corrido
+  de verdad— y el hueco de nivel 6 está *declarado* en `PROOF.md`, no tapado.
+  Ese es el estado en el que se integra la rama.
+- **Listo para publicar:** además, alguien vio el plugin funcionando dentro de
+  una sesión interactiva real de Claude Code —el hook disparado por el harness,
+  no invocado a mano—. Ese paso lo tiene que dar una persona; no hay forma de
+  que lo haga el propio agente, y por eso no se convierte en `🔴 BLOQUEANTE`:
+  bloquear el repo por algo que solo el autor puede levantar frenaría cada
+  turno de trabajo sin que nadie pueda destrabarlo. Queda en `⬜ ABIERTO`, a la
+  vista en el parte de arranque de cada sesión.
+
+Publicar antes de dar ese paso contradice el propio método: sería pedirle al
+usuario que confíe en el reporte del agente sobre el plugin que existe para no
+confiar en el reporte del agente.
 
 ---
 
@@ -490,6 +549,7 @@ terminado.
 ```
 proof-first/
 ├── plugin.json
+├── .gitignore                     (__pycache__ fuera del repo)
 ├── README.md                      (inglés, con resumen en español)
 ├── LICENSE                        (MIT, como los otros dos)
 ├── skills/
@@ -523,6 +583,6 @@ proof-first/
 | `PROOF.md` en el repo | Base local tipo SQLite | La evidencia debe ser auditable por terceros y viajar con el proyecto |
 | Verificador sin permiso de escritura de código | Verificador que puede arreglar | Si arregla, aprueba lo que él mismo arregló |
 | Coordenada, no copia de la prueba | Archivar capturas | Las copias también se pudren y nadie las mira |
-| Hook prompt-based | Lista de rutas por regex | Una lista fija se rompe con cualquier estructura inesperada |
+| Detector determinista de rutas (`lib/deteccion.py`) | Hook prompt-based (un modelo juzga cada cierre de turno) | Determinista y barato — no gasta una llamada a modelo en cada cierre de turno — y degrada con gracia sin git; el criterio completo con contexto vive en la skill |
 | La skill funciona sin hooks | Hooks obligatorios | Lo que es prompt corre en cualquier modelo; atar el criterio al hook lo encierra en un solo CLI |
 | Nombre `proof-first` | `witness`, `receipts`, `oob` | Nombra el método, no solo la herramienta, y contrasta directo con SDD. `receipts` ya está tomado por RDD. `witness` sobrevive como el nombre del verificador |

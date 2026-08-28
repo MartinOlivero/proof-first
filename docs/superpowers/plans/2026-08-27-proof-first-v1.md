@@ -784,11 +784,15 @@ def main():
 Run: `uv run python3 hooks/stop_gate.py --autotest`
 Expected: `stop_gate.py OK`
 
-- [ ] **Step 5: Create hooks.json**
+- [ ] **Step 5: Create hooks.json — solo el hook `Stop`**
+
+El hook `SessionStart` se agrega en Task 5, cuando su script exista. Un hook que
+apunta a un archivo inexistente es peor que no tener el hook: rompe el plugin
+para cualquiera que lo instale entre una tarea y la otra.
 
 ```json
 {
-  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente, y muestra el estado del cuaderno al abrir la sesion.",
+  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente.",
   "hooks": {
     "Stop": [
       {
@@ -798,18 +802,6 @@ Expected: `stop_gate.py OK`
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop_gate.py",
             "timeout": 15
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session_report.py",
-            "timeout": 10
           }
         ]
       }
@@ -842,6 +834,7 @@ Sin git degrada a no bloquear nunca. Un hook roto aprueba, no traba."
 
 **Files:**
 - Create: `hooks/session_report.py`
+- Modify: `hooks/hooks.json` (agregar el bloque `SessionStart`)
 
 **Interfaces:**
 - Consumes: `cuaderno.leer`, `huella.vencidas`
@@ -974,10 +967,54 @@ def main():
 Run: `uv run python3 hooks/session_report.py --autotest`
 Expected: `session_report.py OK`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Agregar el hook `SessionStart` a `hooks/hooks.json`**
+
+Ahora que el script existe. El archivo queda así (reemplazar entero):
+
+```json
+{
+  "description": "Impide cerrar un turno que toco codigo caro sin evidencia observable desde afuera del agente, y muestra el estado del cuaderno al abrir la sesion.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop_gate.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session_report.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Verificar que sigue siendo JSON válido:
 
 ```bash
-git add hooks/session_report.py
+chmod +x hooks/session_report.py
+uv run python3 -c "import json; d=json.load(open('hooks/hooks.json')); print(sorted(d['hooks']))"
+```
+Expected: `['SessionStart', 'Stop']`
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add hooks/session_report.py hooks/hooks.json
 git commit -m "feat: parte de arranque con el estado del cuaderno
 
 Sin esto PROOF.md existe pero nadie lo abre."
@@ -1271,16 +1308,34 @@ proof-first · 3 actas vigentes · 1 vencida
 ↺ VENCIDA      Login con Google (cambió src/auth/sesion.ts)
 ```
 
-Para saber cuáles vencieron:
+Para saber cuáles vencieron, calculá la huella con `shasum` y comparala contra
+la que quedó escrita en el acta. **No dependas de la ruta de instalación del
+plugin:** `${CLAUDE_PLUGIN_ROOT}` no se sustituye dentro de un comando —solo en
+hooks y MCP— y un path escrito a mano rompe en silencio en cuanto el plugin se
+instala en otro lado.
+
+Por cada acta del cuaderno, con sus archivos en `cubre` y su `huella`:
 
 ```bash
-uv run python3 -c "
-import sys, os; sys.path.insert(0, os.path.expanduser('~/.claude/plugins/proof-first/lib'))
-import cuaderno, huella
-d = cuaderno.leer('PROOF.md')
-for a in huella.vencidas(d['actas'], '.'):
-    print('VENCIDA:', a['que'])
-"
+# repite exactamente lo que hace lib/huella.py: nombre + contenido, ordenado
+uv run python3 - <<'PY'
+import hashlib, os, re
+texto = open("PROOF.md", encoding="utf-8").read()
+actas = re.findall(
+    r"✅ (\S+) · (.+?) · nivel (\d+)\n\s+prueba: .*\n\s+cubre: (.+?) · huella: (\S+)",
+    texto)
+for fecha, que, nivel, cubre, guardada in actas:
+    archivos = [c.strip() for c in cubre.split(",")]
+    h = hashlib.sha256()
+    for rel in sorted(archivos):
+        h.update(rel.encode("utf-8"))
+        try:
+            h.update(open(rel, "rb").read())
+        except OSError:
+            h.update(b"<ausente>")
+    estado = "vigente" if h.hexdigest()[:6] == guardada else "VENCIDA"
+    print(f"{estado:8} {que}  ({cubre})")
+PY
 ```
 
 Si `PROOF.md` no existe, decilo en una línea y ofrecé crearlo. No lo crees sin
