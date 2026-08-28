@@ -1,0 +1,17 @@
+{
+  "name": "proof-first",
+  "owner": {
+    "name": "Martín Olivero / IamAutom",
+    "url": "https://iamautom.com"
+  },
+  "metadata": {
+    "description": "Proof-First Development: never trust the agent's report, only an artifact observable from outside the agent."
+  },
+  "plugins": [
+    {
+      "name": "proof-first",
+      "source": "./",
+      "description": "Blocks a turn from closing when money, auth, user data, permissions or deploys were touched without evidence a disinterested third party can confirm. Sends a clean-context subagent to go get it, and records it in a PROOF.md whose actas expire on their own when the code they cover changes."
+    }
+  ]
+}
