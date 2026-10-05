@@ -1,6 +1,6 @@
 {
   "name": "proof-first",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Proof-First Development: never trust the agent's report, only an artifact observable from outside the agent. A green test suite is the agent grading its own homework; a charge in the Stripe dashboard is not. Blocks a turn from closing when money, auth, user data, permissions or deploys were touched without external evidence, sends a clean-context subagent to go get it, and records it in a PROOF.md that expires on its own when the code changes.",
   "author": {
     "name": "Martín Olivero / IamAutom",

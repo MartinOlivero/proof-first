@@ -710,3 +710,31 @@ witness. El testigo puede correr `cuaderno.py deuda`, o sea escribir "deuda
 asumida por <quien>" y abrir el porton EN NOMBRE de una persona. La valvula de
 escape es una decision del usuario, no del verificador. El testigo escribe
 actas, nunca deudas.
+
+
+## 1.0.1 — lo que enseñó el primer mes de uso (04/10/2026)
+
+Evidencia: `docs/evidencia/uso-real-2026-10.md`.
+
+43. El detector ignora lo que no se despliega: imagenes, video, documentos y
+tests (`NO_CODIGO`), y `.proof-tmp/` pasa a ser ruido. Motivo: 74 capturas bajo
+`snapshots/` frenaron seis turnos como "Backup". Costo de equivocarse: un
+`.md` o un test que SI sea caro (una migracion documentada en markdown que
+alguien ejecuta a mano) deja de frenar; se pide con `/proof`.
+
+44. Un patron matchea el token exacto o su plural exacto, ya no "empieza con el
+plural". Motivo: `modelosIA.ts` caia en "modelo". Costo: `sessionsStore.ts`
+deja de matchear `session`; el directorio `sessions/` sigue matcheando.
+
+45. Las deudas "a confirmar" NO se bloquean. La primera lectura fue que el
+agente se firmaba sus propias excepciones; los transcripts mostraron que el
+usuario habia dicho "me voy a dormir, segui vos, mañana veo todo". Bloquear
+rompe ese modo de trabajo, que es legitimo. El hueco real era que nadie le
+mostraba el pendiente a la persona: se arregla con una linea en el parte de
+arranque (`_te_esperan`) y el subcomando `confirmar`. Lo POSTERGADO, que antes
+no se mostraba nunca, entra en la misma linea.
+
+46. Un acta sin `cubre` sigue siendo valida (decision 42 y anteriores). Se
+evaluo rechazarlas al ver un acta nivel 6 sin archivos en un cuaderno real, y
+se descarto: era justo el caso legitimo, una persona confirmando en produccion
+algo que no cuelga de un archivo.

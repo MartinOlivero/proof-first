@@ -79,3 +79,18 @@ Listá lo que está en `⚠️ HECHO SIN PROBAR`, ordenado por costo de equivoca
 plata primero, después auth, datos, permisos, deploy, y al final el resto.
 
 Por cada uno, decí en una línea qué prueba haría falta según el catálogo.
+
+**Primero, lo que espera a la persona:** las deudas que dicen `a confirmar por`
+(las firmó el agente trabajando solo) y todo lo que esté en `⏸️ POSTERGADO`,
+de lo más viejo a lo más nuevo. Por cada una preguntá qué hace con ella:
+
+- **La prueba ahora** → lanzá al testigo como en la sección anterior.
+- **La asume** → pasala a su nombre con el subcomando `confirmar` (resolvé la
+  ruta de `cuaderno.py` igual que arriba):
+
+  ```bash
+  python3 "$CUADERNO" confirmar "$PWD/PROOF.md" --que "<el qué, tal cual figura>" --quien "<su nombre>"
+  ```
+
+No confirmes ninguna por tu cuenta: confirmar es justo lo que el agente no
+puede hacer.

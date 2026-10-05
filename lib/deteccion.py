@@ -66,10 +66,31 @@ CATEGORIAS = {
 }
 
 
+# Lo que no corre en produccion no puede ser "codigo caro", se llame como se
+# llame. Salio del primer mes de uso real (09/2026): 74 capturas de un video en
+# `videos/promo/snapshots/` frenaron seis turnos como "Backup", y un informe
+# `docs/reporte-logout.md` freno como "Login".
+NO_CODIGO = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".avif",
+             ".mp4", ".mov", ".webm", ".mp3", ".wav", ".pdf", ".md", ".mdx",
+             ".txt", ".csv", ".log", ".woff", ".woff2", ".ttf", ".otf", ".zip")
+
+
+def _no_es_codigo(ruta):
+    """Imagenes, documentos y tests: nada de eso se despliega."""
+    base = ruta.lower().replace("\\", "/").split("/")[-1]
+    if base.endswith(NO_CODIGO):
+        return True
+    # Un test no es lo que cobra ni lo que loguea: es justo la prueba propia que
+    # el metodo dice que no alcanza. Frenar por tocarlo es frenar al pedo.
+    return ".test." in base or ".spec." in base or base.startswith("test_")
+
+
 def clasificar(archivos):
     """Categoria cara -> archivos que la dispararon. Vacio si nada es caro."""
     resultado = {}
     for ruta in archivos:
+        if _no_es_codigo(ruta):
+            continue
         # ponytail: tokenizar por separadores comunes, no substring matching
         # evita falsos positivos como "rol" en "controller" o "acl" en "oracle"
         ruta_bajo = ruta.lower()
@@ -89,8 +110,9 @@ def clasificar(archivos):
         basename = ruta_bajo.split("/")[-1].split("\\")[-1]
 
         for clave, cat in CATEGORIAS.items():
-            # un patron dispara si es token exacto o un prefijo de un token
-            # (ej: "migration" matchea "migrations", pero "rol" no matchea "controller")
+            # un patron dispara si es el token exacto o su plural
+            # (ej: "migration" matchea "migrations", pero "rol" no matchea "controller"
+            # ni "modelo" matchea "modelosIA": antes alcanzaba con EMPEZAR con el plural)
             # si el patron contiene un punto, matchea contra el basename
             for patron in cat["patrones"]:
                 if "." in patron:
@@ -99,7 +121,7 @@ def clasificar(archivos):
                         break
                 else:
                     for token in tokens:
-                        if token == patron or token.startswith(patron + "_") or token.startswith(patron + "s"):
+                        if token == patron or token == patron + "s":
                             resultado.setdefault(clave, []).append(ruta)
                             break
                 if ruta in resultado.get(clave, []):
@@ -111,7 +133,9 @@ def clasificar(archivos):
 # y salidas de build. Se comparan como SEGMENTO de ruta, nunca como substring,
 # para no descartar "src/build_pipeline.ts" por contener "build".
 RUIDO = {"node_modules", ".venv", "venv", "dist", "build", "target",
-         "vendor", ".next", "__pycache__", ".git"}
+         "vendor", ".next", "__pycache__", ".git",
+         # la carpeta de trabajo del testigo: sus sondas no son codigo del proyecto
+         ".proof-tmp"}
 
 
 def _segmentos(ruta):
@@ -275,6 +299,17 @@ def _autotest():
     assert "deploy" in clasificar(["vercel.json"]), "vercel.json es deploy"
     assert "deploy" in clasificar(["netlify.toml"]), "netlify.toml es deploy"
     assert "deploy" in clasificar(["Dockerfile"]), "Dockerfile es deploy"
+
+    # falsos positivos medidos en un mes de uso real (ver NO_CODIGO)
+    assert clasificar(["videos/promo/snapshots/v1/frame-00-at-3.9s.png"]) == {}, "una captura no es un backup"
+    assert clasificar(["docs/reporte-logout.md"]) == {}, "un informe no es auth"
+    assert clasificar(["src/constants/modelosIA.ts"]) == {}, "modelosIA no es el modelo de datos"
+    assert clasificar(["scripts/check-pagos.test.ts", "tests/test_login.py"]) == {}, "un test no es codigo caro"
+    assert _es_ruido(".proof-tmp/seed.mjs"), "la sonda del testigo es ruido"
+    # y lo que si es caro sigue siendolo
+    assert "backup" in clasificar(["scripts/backup.sh"])
+    assert "datos" in clasificar(["src/models/user.ts", "db/modelos/pedido.py"])
+    assert "auth" in clasificar(["src/sessions/store.ts"])
 
     # backslash como separador (windows paths)
     assert "auth" in clasificar(["src\\auth\\session.ts"]), "backslash-separated path"

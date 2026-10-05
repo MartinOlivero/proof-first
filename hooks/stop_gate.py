@@ -129,7 +129,10 @@ def decidir(raiz):
                 "1. Lanzá el subagente `witness` para conseguir la prueba y escribir el "
                 "acta en PROOF.md.\n"
                 "2. Si el usuario decide seguir sin probar, registrá la deuda en PROOF.md "
-                "con su nombre y la fecha. Declararla alcanza para cerrar."}
+                "con su nombre y la fecha. Declararla alcanza para cerrar.\n"
+                "3. Si el usuario no está (te dejó trabajando solo) y la prueba necesita "
+                "algo que no tenés, registrá la deuda con --quien \"Claude (a confirmar "
+                "por <su nombre>)\". Se le muestra al abrir la próxima sesión."}
 
     return {"decision": "approve"}
 

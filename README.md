@@ -52,13 +52,17 @@ una persona, no una inferencia sobre un diff. **Sin hooks, la skill sigue
 funcionando igual**: el criterio vive ahí completo, los hooks solo lo vuelven
 obligatorio.
 
-Lo que todavía falta probar, dicho acá y no solo en inglés — dos cosas
-abiertas, no una: nadie confirmó todavía, en una sesión real de Claude Code,
-que el propio Claude Code dispara estos hooks de verdad (nivel 6, pendiente
-de una persona); y el tercer veredicto posible del testigo, ✅ PROBADO, nunca
-se ejercitó — hace falta un sistema real corriendo con credenciales reales
-para llegar a él, el mismo hueco de nivel 6. Los dos quedan anotados como
-abiertos en `PROOF.md`.
+**Si dejás al agente trabajando solo** ("seguí vos, mañana lo veo"), lo que no
+pueda probar sin vos queda como deuda firmada `Claude (a confirmar por <tu
+nombre>)`, y al abrir la sesión siguiente el parte arranca con
+`⏳ te esperan: 6 deudas a confirmar · 4 postergados · lo más viejo, de hace 24
+días → /proof deuda`. Desde ahí las mandás a probar o las asumís vos.
+
+Las dos cosas que la 1.0.0 declaraba sin probar — que Claude Code dispare los
+hooks en una sesión viva, y que el testigo llegue a ✅ PROBADO contra un sistema
+real — las contestó un mes de uso en tres proyectos en producción. Los números,
+los falsos positivos que aparecieron y lo que costó en tokens están en
+[`docs/evidencia/uso-real-2026-10.md`](docs/evidencia/uso-real-2026-10.md).
 
 Instalación:
 
@@ -209,6 +213,8 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
 - **A first block that feels wrong:** the detector matches file *paths*
   against broad patterns — `models`, `job`, `schedule`, `token` — so an
   ordinary file can trip it (`src/models/Button.tsx`, `lib/job-queue-ui.ts`).
+  Since 1.0.1 it skips what never ships: images, video, docs (`.md`, `.pdf`),
+  test files and the witness's own `.proof-tmp/` scratch folder.
   That's the design, not a bug: it's tuned to ask too often rather than let a
   broken charge through, and one line of declared debt closes the turn. If a
   pattern keeps firing on the same harmless file, that's what the debt entry
@@ -277,13 +283,15 @@ into one:
   transcripts. `PROOF.md`'s coordinates point there, not at anything
   gitignored.
 
-**What's still not exercised, stated plainly:** the third verdict, **✅
-PROBADO**, needs a real system running with real credentials to reach — the
-same level-6 gap below, not a separate one. And whether Claude Code itself
-fires these hooks inside a live interactive session: invoking the hook
-script directly proves the script's logic, not that the harness wires it up
-the way `hooks/hooks.json` declares. That confirmation needs a person,
-watching it happen in a real session. See `PROOF.md`'s open items.
+**What 1.0.0 declared unexercised, and what answered it:** whether Claude Code
+really fires these hooks in a live session, and whether the witness ever
+reaches **✅ PROBADO** against a real system. A month of use on three
+production projects settled both — the hook's block message shows up in the
+harness's own session transcripts, and the witness wrote some thirty actas with
+real credentials (and refuted a logout that revoked nothing). It also cost
+about 1% of those sessions' output tokens. The numbers, the false positives it
+surfaced and the fixes they led to (1.0.1) are in
+[`docs/evidencia/uso-real-2026-10.md`](docs/evidencia/uso-real-2026-10.md).
 
 ## License
 
