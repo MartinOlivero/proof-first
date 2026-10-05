@@ -209,6 +209,30 @@ def agregar_deuda(ruta, que, motivo, quien, fecha):
     escribir(ruta, datos)
 
 
+# Marca con la que el agente firma una deuda cuando la persona no esta para
+# decidir ("segui vos, mañana lo veo"). El parte de arranque las cuenta aparte.
+A_CONFIRMAR = "a confirmar por"
+
+
+def confirmar_deuda(ruta, que, quien, fecha):
+    """
+    La persona vuelve y hace suya una deuda que el agente dejo "a confirmar".
+
+    Por que existe: sin esto la deuda queda para siempre a nombre del agente,
+    que es el que no puede asumirla. Devuelve False si no habia tal deuda.
+    """
+    _validar_texto("quien", quien)
+    datos = leer(ruta)
+    for i, d in enumerate(datos["sin_probar"]):
+        if d.startswith(f"{que} — ") and A_CONFIRMAR in d:
+            # "…asumida por Claude (a confirmar por Martin) 04/10" -> "…confirmada por Martin 05/10"
+            cuerpo = d.rsplit(" — deuda asumida por ", 1)[0]
+            datos["sin_probar"][i] = f"{cuerpo} — deuda confirmada por {quien} {fecha}"
+            escribir(ruta, datos)
+            return True
+    return False
+
+
 # ---------------------------------------------------------------- linea de comandos
 
 
@@ -251,6 +275,12 @@ def _cli(argv):
     pd.add_argument("--quien", required=True, help="quién asumió la deuda")
     pd.add_argument("--fecha", default=None, help="dd/mm (por defecto, hoy)")
 
+    pc = sub.add_parser("confirmar", help="la persona hace suya una deuda que quedó 'a confirmar'")
+    pc.add_argument("proof", help="ruta (absoluta) a PROOF.md")
+    pc.add_argument("--que", required=True, help="el qué de la deuda, tal cual figura")
+    pc.add_argument("--quien", required=True, help="la persona que la confirma")
+    pc.add_argument("--fecha", default=None, help="dd/mm (por defecto, hoy)")
+
     args = p.parse_args(argv)
 
     if args.autotest or args.comando is None:
@@ -276,6 +306,12 @@ def _ejecutar(args):
         agregar_deuda(proof, que=args.que, motivo=args.motivo,
                       quien=args.quien, fecha=fecha)
         print(f"deuda registrada en {proof}: {args.que} — asumida por {args.quien} {fecha}")
+        return 0
+
+    if args.comando == "confirmar":
+        if not confirmar_deuda(proof, que=args.que, quien=args.quien, fecha=fecha):
+            raise ValueError(f"no hay ninguna deuda «{args.que}» esperando confirmación en {proof}")
+        print(f"deuda confirmada en {proof}: {args.que} — por {args.quien} {fecha}")
         return 0
 
     cubre = [c.strip() for c in args.cubre.split(",") if c.strip()]
@@ -456,6 +492,20 @@ def _autotest():
                         cwd=tempfile.mkdtemp(), capture_output=True, text=True)
     assert r3.returncode != 0, r3.stdout
     assert len(leer(ruta3)["actas"]) == 1, leer(ruta3)["actas"]
+
+    # una deuda "a confirmar" pasa a nombre de la persona, y solo esa
+    dc = tempfile.mkdtemp()
+    rc = os.path.join(dc, "PROOF.md")
+    agregar_deuda(rc, que="Link de agenda", motivo="falta una reserva real",
+                  quien="Claude (a confirmar por Martin)", fecha="04/10")
+    agregar_deuda(rc, que="Checkout", motivo="nivel 2", quien="Martin", fecha="04/10")
+    assert confirmar_deuda(rc, "Link de agenda", "Martin", "05/10")
+    sp = leer(rc)["sin_probar"]
+    assert sp[0] == "Link de agenda — falta una reserva real — deuda confirmada por Martin 05/10", sp
+    assert A_CONFIRMAR not in sp[0] and len(sp) == 2, sp
+    # lo que ya estaba a nombre de una persona no se toca, y lo inexistente tampoco
+    assert not confirmar_deuda(rc, "Checkout", "Martin", "05/10")
+    assert not confirmar_deuda(rc, "No existe", "Martin", "05/10")
 
     print("cuaderno.py OK")
 

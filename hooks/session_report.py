@@ -19,6 +19,7 @@ Salida: JSON con systemMessage, o nada si no hay cuaderno.
 import datetime
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
@@ -56,7 +57,57 @@ def _fecha_vencimiento(acta, raiz):
     return datetime.date.fromtimestamp(max(marcas)).strftime("%d/%m")
 
 
-def resumen(raiz):
+_RE_FECHA = re.compile(r"\b(\d{1,2})/(\d{1,2})\b")
+
+
+def _dias(item, hoy):
+    """
+    Hace cuantos dias se anoto un item, segun la ultima fecha dd/mm que trae.
+
+    ponytail: el cuaderno no guarda el año; una fecha "futura" se toma como del
+    año pasado. Si algun dia hay deudas de mas de un año, guardar el año.
+    """
+    fechas = _RE_FECHA.findall(item)
+    if not fechas:
+        return None
+    dia, mes = int(fechas[-1][0]), int(fechas[-1][1])
+    try:
+        f = datetime.date(hoy.year, mes, dia)
+        if f > hoy:
+            f = f.replace(year=hoy.year - 1)
+    except ValueError:
+        return None
+    return (hoy - f).days
+
+
+def _te_esperan(datos, hoy):
+    """
+    Una linea con lo que quedo esperando a la persona, o None.
+
+    Por que existe: en el primer mes de uso el agente trabajo de noche con la
+    consigna "segui vos, mañana lo veo" y dejo seis deudas "a confirmar por
+    Martin"; otro proyecto junto cuatro postergados durante tres semanas. El
+    cuaderno las guardaba bien y nadie se entero: lo postergado ni se mostraba.
+    """
+    a_confirmar = [s for s in datos["sin_probar"] if cuaderno.A_CONFIRMAR in s]
+    postergado = datos["postergado"]
+    if not a_confirmar and not postergado:
+        return None
+    partes = []
+    if a_confirmar:
+        n = len(a_confirmar)
+        partes.append(f"{n} deuda{'s' if n != 1 else ''} a confirmar")
+    if postergado:
+        n = len(postergado)
+        partes.append(f"{n} postergado{'s' if n != 1 else ''}")
+    dias = [d for d in (_dias(i, hoy) for i in a_confirmar + postergado) if d]
+    if dias:
+        viejo = max(dias)
+        partes.append(f"lo más viejo, de hace {viejo} día{'s' if viejo != 1 else ''}")
+    return "⏳ te esperan: " + " · ".join(partes) + " → /proof deuda"
+
+
+def resumen(raiz, hoy=None):
     proof = os.path.join(raiz, "PROOF.md")
     if not os.path.exists(proof):
         return None
@@ -73,6 +124,10 @@ def resumen(raiz):
 
     # Collect all items in priority order: blockers, debts, then expired line
     items = []
+    espera = _te_esperan(datos, hoy or datetime.date.today())
+    if espera:
+        # Va primero: es lo unico de la lista que solo puede resolver la persona.
+        items.append(espera)
     for b in datos["bloqueante"]:
         items.append(f"🔴 {b}")
     for s in datos["sin_probar"]:
@@ -222,6 +277,27 @@ def _autotest():
     assert len(lineas6) <= 5, lineas6
     assert all(len(l) <= ANCHO for l in lineas6), [len(l) for l in lineas6]
     assert lineas6[1].endswith("…"), lineas6[1]
+
+    # lo que espera a la persona va en la primera linea, con su antiguedad
+    d5 = tempfile.mkdtemp()
+    proof5 = os.path.join(d5, "PROOF.md")
+    cuaderno.agregar_deuda(proof5, que="Link de agenda", motivo="falta una reserva real",
+                           quien="Claude (a confirmar por Martin)", fecha="04/10")
+    cuaderno.agregar_deuda(proof5, que="Checkout", motivo="nivel 2", quien="Martin", fecha="04/10")
+    datos5 = cuaderno.leer(proof5)
+    datos5["postergado"].append("Probar el checkout en producción. Lo decidió Martín el 10/09")
+    datos5["bloqueante"].append("Falta decidir el borrado")
+    cuaderno.escribir(proof5, datos5)
+    r7 = resumen(d5, hoy=_dt.date(2026, 10, 4)).split("\n")
+    assert r7[1] == ("⏳ te esperan: 1 deuda a confirmar · 1 postergado · "
+                     "lo más viejo, de hace 24 días → /proof deuda"), r7[1]
+    assert r7[2].startswith("🔴"), r7
+    # una deuda ya a nombre de una persona no "espera" a nadie
+    cuaderno.confirmar_deuda(proof5, "Link de agenda", "Martin", "05/10")
+    datos5 = cuaderno.leer(proof5); datos5["postergado"] = []; cuaderno.escribir(proof5, datos5)
+    assert "te esperan" not in resumen(d5), resumen(d5)
+    # una fecha de diciembre leida en enero es del año pasado, no del futuro
+    assert _dias("algo — deuda asumida por T 30/12", _dt.date(2027, 1, 2)) == 3
 
     print("session_report.py OK")
 

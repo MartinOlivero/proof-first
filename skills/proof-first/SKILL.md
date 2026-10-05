@@ -83,6 +83,12 @@ proyecto, versionado en git para que sea auditable por un tercero.
 - Sin probar por decisión del usuario → una deuda, **con su nombre y la fecha**.
   La diferencia entre "lo postergamos a propósito" y "nos olvidamos" es la
   información más valiosa del archivo.
+- Sin probar **y el usuario no está** (te dejó trabajando solo: "seguí vos,
+  mañana lo veo") → primero agotá lo que el testigo puede conseguir con lo que
+  hay. Lo que necesite algo que no tenés (una credencial, una compra real, a la
+  persona) va como deuda firmada `Claude (a confirmar por <su nombre>)`. No es
+  un permiso: es un pendiente suyo, y el parte de arranque se lo muestra
+  primero. Nunca firmes con su nombre a secas una decisión que no tomó.
 
 ### El formato de `PROOF.md`
 
