@@ -94,3 +94,15 @@ de lo más viejo a lo más nuevo. Por cada una preguntá qué hace con ella:
 
 No confirmes ninguna por tu cuenta: confirmar es justo lo que el agente no
 puede hacer.
+
+**Antes que todo eso, lo que cerró sin prueba:** los ítems de `⬜ ABIERTO` que
+dicen `el turno cerró sin prueba ni deuda declarada`. Los anotó el hook cuando
+un turno pasó por la segunda vuelta sin que nadie hiciera nada: no tienen ni
+prueba ni a alguien que haya decidido seguir sin ella. Mismas dos salidas:
+
+- **La prueba ahora** → testigo; el acta nueva saca la anotación sola.
+- **La asume** → registrala como deuda a su nombre (también la saca sola):
+
+  ```bash
+  python3 "$CUADERNO" deuda "$PWD/PROOF.md" --que "<el qué, tal cual figura>" --motivo "<por qué sigue sin probar>" --quien "<su nombre>"
+  ```

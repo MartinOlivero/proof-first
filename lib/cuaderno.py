@@ -192,6 +192,8 @@ def agregar_acta(ruta, que, nivel, prueba, cubre, huella, fecha):
     datos["actas"] = [a for a in datos["actas"] if a["que"] != que]
     datos["actas"].append({"fecha": fecha, "que": que, "nivel": nivel,
                            "prueba": prueba, "cubre": cubre, "huella": huella})
+    # Lo que la segunda vuelta dejo anotado se cierra con la prueba que faltaba.
+    _sacar_abierto(datos, [que] + list(cubre))
     # Si estaba como deuda, deja de estarlo.
     datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
     escribir(ruta, datos)
@@ -206,7 +208,28 @@ def agregar_deuda(ruta, que, motivo, quien, fecha):
     entrada = f"{que} — {motivo} — deuda asumida por {quien} {fecha}"
     datos["sin_probar"] = [d for d in datos["sin_probar"] if not d.startswith(f"{que} — ")]
     datos["sin_probar"].append(entrada)
+    _sacar_abierto(datos, [que])
     escribir(ruta, datos)
+
+
+# Lo que anota el hook cuando un turno cierra por la segunda vuelta: sin prueba
+# y sin que nadie haya asumido la deuda. El parte de arranque lo cuenta aparte.
+SIN_PRUEBA = "el turno cerró sin prueba ni deuda declarada"
+
+
+def anotar_abierto(ruta, que, motivo, fecha):
+    """Anota en ABIERTO. Va ahi y no en deudas: no cuenta como cobertura."""
+    _validar_texto("que", que)
+    _validar_texto("motivo", motivo)
+    datos = leer(ruta)
+    _sacar_abierto(datos, [que])
+    datos["abierto"].append(f"{que} — {motivo} {fecha}")
+    escribir(ruta, datos)
+
+
+def _sacar_abierto(datos, ques):
+    datos["abierto"] = [a for a in datos["abierto"]
+                        if not any(a.startswith(f"{q} — ") for q in ques)]
 
 
 # Marca con la que el agente firma una deuda cuando la persona no esta para

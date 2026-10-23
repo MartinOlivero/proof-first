@@ -25,6 +25,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 import cuaderno  # noqa: E402
+import deteccion  # noqa: E402
 import huella  # noqa: E402
 
 MAX_ITEMS = 4  # ponytail: changed to total budget, not per-category
@@ -91,16 +92,21 @@ def _te_esperan(datos, hoy):
     """
     a_confirmar = [s for s in datos["sin_probar"] if cuaderno.A_CONFIRMAR in s]
     postergado = datos["postergado"]
-    if not a_confirmar and not postergado:
+    sin_prueba = [a for a in datos["abierto"] if cuaderno.SIN_PRUEBA in a]
+    if not a_confirmar and not postergado and not sin_prueba:
         return None
     partes = []
+    if sin_prueba:
+        # Primero: es lo unico que ni siquiera tiene a alguien que lo haya decidido.
+        n = len(sin_prueba)
+        partes.append(f"{n} cerrado{'s' if n != 1 else ''} sin prueba")
     if a_confirmar:
         n = len(a_confirmar)
         partes.append(f"{n} deuda{'s' if n != 1 else ''} a confirmar")
     if postergado:
         n = len(postergado)
         partes.append(f"{n} postergado{'s' if n != 1 else ''}")
-    dias = [d for d in (_dias(i, hoy) for i in a_confirmar + postergado) if d]
+    dias = [d for d in (_dias(i, hoy) for i in sin_prueba + a_confirmar + postergado) if d]
     if dias:
         viejo = max(dias)
         partes.append(f"lo más viejo, de hace {viejo} día{'s' if viejo != 1 else ''}")
@@ -173,6 +179,13 @@ def main():
     except (json.JSONDecodeError, ValueError):
         entrada = {}
     raiz = entrada.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+    try:
+        # El punto de partida del primer turno: lo que se commitee desde aca
+        # lo ve el hook Stop aunque ya no figure en git status.
+        deteccion.guardar_marca(raiz, entrada.get("session_id"))
+    except Exception:  # noqa: BLE001
+        pass
 
     try:
         texto = resumen(raiz)
@@ -298,6 +311,14 @@ def _autotest():
     assert "te esperan" not in resumen(d5), resumen(d5)
     # una fecha de diciembre leida en enero es del año pasado, no del futuro
     assert _dias("algo — deuda asumida por T 30/12", _dt.date(2027, 1, 2)) == 3
+
+    # lo que cerro por la segunda vuelta encabeza lo que espera a la persona
+    import datetime as _dt
+    sp = tempfile.mkdtemp()
+    cuaderno.anotar_abierto(os.path.join(sp, "PROOF.md"), que="src/pagos/webhook.ts",
+                            motivo=f"se tocó cobro y {cuaderno.SIN_PRUEBA}", fecha="20/10")
+    parte = resumen(sp, hoy=_dt.date(2026, 10, 23))
+    assert "⏳ te esperan: 1 cerrado sin prueba · lo más viejo, de hace 3 días" in parte, parte
 
     print("session_report.py OK")
 

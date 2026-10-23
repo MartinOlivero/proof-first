@@ -14,6 +14,7 @@ falsos positivos se desinstala el segundo dia, y ahi no protege nada.
 import os
 import re
 import subprocess
+import unicodedata
 
 # nivel 5 = hace falta un tercero sin interes que lo confirme (spec §4)
 CATEGORIAS = {
@@ -93,7 +94,11 @@ def clasificar(archivos):
             continue
         # ponytail: tokenizar por separadores comunes, no substring matching
         # evita falsos positivos como "rol" en "controller" o "acl" en "oracle"
-        ruta_bajo = ruta.lower()
+        # Sin tildes: el catalogo dice "sesion" y "migracion", y "sesión.ts" no
+        # matcheaba nada. NFKD ademas une la forma en que macOS guarda los
+        # acentos (letra + tilde suelta) con la de cualquier otro sistema.
+        ruta_bajo = "".join(c for c in unicodedata.normalize("NFKD", ruta.lower())
+                            if not unicodedata.combining(c))
         tokens = []
         current_token = []
         for char in ruta_bajo:
@@ -150,7 +155,9 @@ def _es_ruido(ruta):
 def _git(args, raiz):
     """Corre git y devuelve stdout, o None si no hay git o el comando fallo."""
     try:
-        salida = subprocess.run(["git"] + args, cwd=raiz,
+        # quotePath=false: sin esto git escribe "src/sesi\303\263n.ts" para un
+        # nombre con acento, y esa ruta no matchea ningun patron ni ningun acta.
+        salida = subprocess.run(["git", "-c", "core.quotePath=false"] + args, cwd=raiz,
                                 capture_output=True, text=True, timeout=5)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
@@ -189,6 +196,20 @@ def cambios_sin_commitear(raiz):
     salida = _git(["status", "--porcelain", "--untracked-files=all"], raiz)
     if salida is None:
         return None
+    rutas = []
+    for linea in salida.splitlines():
+        if len(linea) < 4:
+            continue
+        ruta = linea[3:].strip().strip('"')
+        # git muestra los renombrados como "viejo -> nuevo"; nos interesa el nuevo
+        if " -> " in ruta:
+            ruta = ruta.split(" -> ", 1)[1]
+        rutas.append(ruta)
+    return _relativas(rutas, raiz)
+
+
+def _relativas(rutas, raiz):
+    """Rutas relativas a la raiz del repo -> relativas a la sesion, sin ruido."""
     techo = _git(["rev-parse", "--show-toplevel"], raiz)
     if techo is None:
         return None
@@ -198,13 +219,7 @@ def cambios_sin_commitear(raiz):
     base = os.path.realpath(raiz)
 
     archivos = []
-    for linea in salida.splitlines():
-        if len(linea) < 4:
-            continue
-        ruta = linea[3:].strip().strip('"')
-        # git muestra los renombrados como "viejo -> nuevo"; nos interesa el nuevo
-        if " -> " in ruta:
-            ruta = ruta.split(" -> ", 1)[1]
+    for ruta in rutas:
         if _es_ruido(ruta):
             continue
         rel = os.path.relpath(os.path.join(techo, ruta), base)
@@ -213,6 +228,67 @@ def cambios_sin_commitear(raiz):
             continue
         archivos.append(rel)
     return archivos
+
+
+# ---------------------------------------------------------------- lo commiteado
+#
+# Por que existe: el hook miraba solo `git status`, y un agente que commitea
+# antes de cerrar el turno se llevaba el cambio caro fuera de su vista. Se creia
+# un caso raro; el uso real dijo otra cosa: en un proyecto en produccion, del 04 al 23/10,
+# 58 de 70 archivos caros se commitearon sin acta ni deuda —el webhook de
+# Stripe en seis commits de un mismo dia— y el hook no nombro ninguno.
+#
+# La "marca" es el HEAD de la ultima vez que el hook dejo cerrar un turno de
+# esta sesion. Lo commiteado desde ahi es de este turno. Como el GPS que guarda
+# donde estacionaste: lo que recorriste se mide desde ese punto.
+
+
+def _ruta_marca(raiz, sesion):
+    limpia = re.sub(r"[^A-Za-z0-9_-]", "", sesion or "")
+    if not limpia:
+        return None
+    # --git-path respeta los worktrees: cada uno tiene su propia carpeta interna
+    ruta = _git(["rev-parse", "--git-path", f"proof-first/marca-{limpia}"], raiz)
+    if ruta is None:
+        return None
+    # ponytail: un archivo de 41 bytes por sesion, sin limpieza; borrar los viejos
+    # en SessionStart si algun dia molesta.
+    return os.path.join(raiz, ruta.strip())
+
+
+def guardar_marca(raiz, sesion):
+    """Anota el HEAD actual como punto de partida del proximo turno."""
+    ruta = _ruta_marca(raiz, sesion)
+    head = _git(["rev-parse", "HEAD"], raiz)
+    if ruta is None or head is None:
+        return  # sin commits todavia, o sin git: no hay nada que marcar
+    try:
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        with open(ruta, "w") as f:
+            f.write(head.strip() + "\n")
+    except OSError:
+        pass  # sin marca el hook vuelve a mirar solo git status: degrada, no rompe
+
+
+def commiteados_en_el_turno(raiz, sesion):
+    """
+    Archivos que cambiaron en commits hechos desde la marca, o [] si no hay marca.
+
+    Sin marca (primera vuelta de una sesion que arranco antes de instalar esta
+    version, o un repo sin commits) se comporta como antes: solo git status.
+    """
+    ruta = _ruta_marca(raiz, sesion)
+    if ruta is None:
+        return []
+    try:
+        with open(ruta) as f:
+            marca = f.read().strip()
+    except OSError:
+        return []
+    salida = _git(["diff", "--name-only", marca, "HEAD"], raiz)
+    if salida is None:
+        return []  # la marca ya no existe (rebase, gc): mejor ciego que trabado
+    return _relativas([l for l in salida.splitlines() if l], raiz) or []
 
 
 def _autotest():
@@ -313,6 +389,35 @@ def _autotest():
 
     # backslash como separador (windows paths)
     assert "auth" in clasificar(["src\\auth\\session.ts"]), "backslash-separated path"
+
+    # lo commiteado dentro del turno se ve desde la marca, y despues ya no
+    c = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=c, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=c, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=c, check=True)
+    open(os.path.join(c, "README.md"), "w").write("x\n")
+    subprocess.run(["git", "add", "."], cwd=c, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=c, check=True)
+    assert commiteados_en_el_turno(c, "s1") == [], "sin marca no inventa nada"
+    guardar_marca(c, "s1")
+    os.makedirs(os.path.join(c, "src", "pagos"))
+    open(os.path.join(c, "src", "pagos", "webhook.ts"), "w").write("x\n")
+    subprocess.run(["git", "add", "."], cwd=c, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "cobro"], cwd=c, check=True)
+    assert cambios_sin_commitear(c) == [], "git status ya no lo ve"
+    assert commiteados_en_el_turno(c, "s1") == ["src/pagos/webhook.ts"], commiteados_en_el_turno(c, "s1")
+    assert commiteados_en_el_turno(c, "otra") == [], "la marca es de cada sesion"
+    guardar_marca(c, "s1")
+    assert commiteados_en_el_turno(c, "s1") == [], "al mover la marca, el turno nuevo arranca limpio"
+    assert "/" not in os.path.basename(_ruta_marca(c, "../x")), _ruta_marca(c, "../x")
+
+    # un nombre con acento llega como texto, no como "\303\263"
+    open(os.path.join(c, "src", "sesión.ts"), "w").write("x\n")
+    assert cambios_sin_commitear(c) == ["src/sesión.ts"], cambios_sin_commitear(c)
+    # y se clasifica: el catalogo no lleva tildes, la ruta si
+    assert "auth" in clasificar(["src/sesión.ts"]), clasificar(["src/sesión.ts"])
+    assert "datos" in clasificar(["db/migración_001.sql"])
+    assert "auth" in clasificar(["src/sesio\u0301n.ts"]), "la forma de macOS (letra + tilde suelta)"
 
     print("deteccion.py OK")
 

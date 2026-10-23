@@ -60,7 +60,7 @@ def _cubierto(nombre, datos, expired_set=None):
     return False
 
 
-def decidir(raiz):
+def decidir(raiz, sesion=None):
     proof = os.path.join(raiz, "PROOF.md")
     datos = cuaderno.leer(proof)
 
@@ -78,6 +78,8 @@ def decidir(raiz):
     if cambiados is None:
         # Sin git no se puede saber que se toco. Degradacion: nunca bloquea.
         return {"decision": "approve"}
+    # Lo que el agente commiteo durante el turno tambien es de este turno.
+    cambiados = sorted(set(cambiados) | set(deteccion.commiteados_en_el_turno(raiz, sesion)))
 
     # Computar el conjunto de actas vencidas que cubren codigo caro.
     todas_vencidas = huella.vencidas(datos["actas"], raiz)
@@ -99,7 +101,10 @@ def decidir(raiz):
                          and not any(c in deudas_ques for c in a["cubre"])]
         if sin_cobertura:
             lista = "\n".join(f"  · {a['que']} (cubría {', '.join(a['cubre'])})" for a in sin_cobertura)
-            return {"decision": "block", "reason":
+            return {"decision": "block",
+                    "_pendientes": [(a["que"], f"el acta venció (cambió {', '.join(a['cubre'])}) "
+                                     f"y {cuaderno.SIN_PRUEBA}") for a in sin_cobertura],
+                    "reason":
                     f"Estas actas quedaron vencidas porque cambiaron los archivos que "
                     f"cubrían:\n{lista}\n\n"
                     "Volvé a verificarlas con el subagente `witness` y actualizá el acta, "
@@ -119,7 +124,11 @@ def decidir(raiz):
             cat = deteccion.CATEGORIAS[clave]
             detalle.append(f"  · {cat['nombre']} (nivel {cat['nivel']}): "
                            f"{', '.join(archivos)}")
-        return {"decision": "block", "reason":
+        return {"decision": "block",
+                "_pendientes": [(f, f"se tocó {deteccion.CATEGORIAS[c]['nombre'].lower()} "
+                                 f"y {cuaderno.SIN_PRUEBA}")
+                                for c, archivos in pendientes.items() for f in archivos],
+                "reason":
                 "Se tocó código caro sin evidencia observable desde afuera:\n"
                 + "\n".join(detalle) + "\n\n"
                 "Nivel 5 significa que un tercero sin interés lo confirma: el cargo en "
@@ -137,18 +146,24 @@ def decidir(raiz):
     return {"decision": "approve"}
 
 
-def segunda_vuelta(raiz):
+def segunda_vuelta(raiz, sesion=None):
     """
     Respuesta cuando este mismo hook ya bloqueo el turno y el agente volvio.
 
     Es la invariante absoluta del plugin: un hook no puede dejar al usuario
     encerrado. Si el agente no puede escribir PROOF.md —permisos, disco de solo
     lectura, modo plan, un usuario que dice que no— sin esta salida el turno no
-    cierra nunca. Aprueba, pero deja escrito por que se aprobo, para que la
-    informacion no se pierda con el bloqueo levantado.
+    cierra nunca. Aprueba, pero deja escrito por que se aprobo.
+
+    "Deja escrito" era un aviso en pantalla, y la pantalla no es un cuaderno: en
+    el uso real del 04 al 23/10 unos quince turnos cerraron por aca —el webhook
+    de cobro, migraciones, un callback de OAuth— y al dia siguiente no quedaba
+    rastro. Ahora lo pendiente se anota en ABIERTO, que no cuenta como deuda
+    (no destraba nada) pero aparece en el parte de la proxima sesion. Es la
+    multa por pasar el control sin parar: no te frena, pero te llega a casa.
     """
     try:
-        decision = decidir(raiz)
+        decision = decidir(raiz, sesion)
     except Exception as e:  # noqa: BLE001
         decision = {"decision": "approve", "systemMessage": f"no se pudo evaluar: {e}"}
 
@@ -160,9 +175,31 @@ def segunda_vuelta(raiz):
     pendiente = pendiente.split("\n\n")[0].strip()
     if decision.get("decision") == "block" and pendiente:
         aviso += ":\n" + pendiente
+        anotados = _anotar(raiz, decision.get("_pendientes", []))
+        if anotados:
+            aviso += f"\n\nQuedó anotado en PROOF.md (ABIERTO, {anotados}): se muestra al abrir la próxima sesión."
     else:
         aviso += "."
     return {"decision": "approve", "systemMessage": aviso}
+
+
+def _anotar(raiz, pendientes):
+    """Escribe lo que paso sin probar en ABIERTO. Devuelve cuantos, 0 si no pudo."""
+    if not pendientes:
+        return 0
+    proof = os.path.join(raiz, "PROOF.md")
+    fecha = cuaderno._hoy()
+    try:
+        for que, motivo in pendientes:
+            cuaderno.anotar_abierto(proof, que=que, motivo=motivo, fecha=fecha)
+    except (OSError, ValueError):
+        return 0  # disco de solo lectura, o un que con salto de linea: queda el aviso
+    return len(pendientes)
+
+
+def _limpiar(decision):
+    """Lo que empieza con _ es para uso interno: no viaja al harness."""
+    return {k: v for k, v in decision.items() if not k.startswith("_")}
 
 
 def main():
@@ -182,12 +219,19 @@ def main():
     # cwd es lo que manda el harness; las otras dos son para correrlo a mano.
     raiz = entrada.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
+    sesion = entrada.get("session_id")
+
     try:
         # Anti-bucle (spec 6.3): si este hook ya bloqueo el turno, no bloquea otra vez.
         if entrada.get("stop_hook_active"):
-            print(json.dumps(segunda_vuelta(raiz), ensure_ascii=False))
-            sys.exit(0)
-        print(json.dumps(decidir(raiz), ensure_ascii=False))
+            decision = segunda_vuelta(raiz, sesion)
+        else:
+            decision = decidir(raiz, sesion)
+        if decision["decision"] == "approve":
+            # El turno cierra: lo commiteado hasta aca ya fue juzgado. Mientras
+            # bloquea, la marca no se mueve, asi un commit no borra la deuda.
+            deteccion.guardar_marca(raiz, sesion)
+        print(json.dumps(_limpiar(decision), ensure_ascii=False))
     except Exception as e:  # noqa: BLE001
         # Un hook roto nunca puede trabar la sesion del usuario.
         print(json.dumps({"decision": "approve",
@@ -460,6 +504,47 @@ def _autotest():
     # y en un proyecto sin nada pendiente tambien aprueba, sin inventar un motivo
     r11 = segunda_vuelta(tempfile.mkdtemp())
     assert r11["decision"] == "approve", r11
+
+    # El caso real del 07/10: el agente commitea el webhook de cobro dentro del
+    # turno. Antes el hook aprobaba (git status vacio); con la marca, frena.
+    import deteccion
+    d12 = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "-q"], cwd=d12, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=d12, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=d12, check=True)
+    open(os.path.join(d12, "README.md"), "w").write("x\n")
+    subprocess.run(["git", "add", "."], cwd=d12, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=d12, check=True)
+    deteccion.guardar_marca(d12, "ses")  # lo que hace SessionStart
+    os.makedirs(os.path.join(d12, "functions", "stripe-webhook"))
+    open(os.path.join(d12, "functions", "stripe-webhook", "index.ts"), "w").write("x\n")
+    subprocess.run(["git", "add", "."], cwd=d12, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "webhook"], cwd=d12, check=True)
+    assert decidir(d12)["decision"] == "approve", "sin sesion se comporta como antes"
+    r12 = decidir(d12, "ses")
+    assert r12["decision"] == "block", r12
+    assert "functions/stripe-webhook/index.ts" in r12["reason"], r12["reason"]
+    assert "_pendientes" not in _limpiar(r12), "lo interno no viaja al harness"
+    # el agente no hace nada: la segunda vuelta deja pasar, pero lo anota
+    r12b = segunda_vuelta(d12, "ses")
+    assert r12b["decision"] == "approve", r12b
+    assert "Quedó anotado en PROOF.md" in r12b["systemMessage"], r12b
+    p12 = os.path.join(d12, "PROOF.md")
+    abiertos = cuaderno.leer(p12)["abierto"]
+    assert len(abiertos) == 1 and abiertos[0].startswith("functions/stripe-webhook/index.ts — "), abiertos
+    assert cuaderno.SIN_PRUEBA in abiertos[0], abiertos
+    # ABIERTO no es una deuda: no destraba. Pero si vuelve a pasar, no se duplica.
+    segunda_vuelta(d12, "ses")
+    assert len(cuaderno.leer(p12)["abierto"]) == 1, cuaderno.leer(p12)["abierto"]
+    # el turno cerro: se mueve la marca y el turno siguiente arranca limpio
+    deteccion.guardar_marca(d12, "ses")
+    assert decidir(d12, "ses")["decision"] == "approve", decidir(d12, "ses")
+    # cuando llega la prueba, la anotacion se va sola
+    h12 = huella.calcular(["functions/stripe-webhook/index.ts"], d12)
+    cuaderno.agregar_acta(p12, que="El webhook rechaza firmas falsas", nivel=5,
+                          prueba="400 en el panel de Stripe",
+                          cubre=["functions/stripe-webhook/index.ts"], huella=h12, fecha="23/10")
+    assert cuaderno.leer(p12)["abierto"] == [], cuaderno.leer(p12)["abierto"]
 
     print("stop_gate.py OK")
 

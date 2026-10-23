@@ -33,17 +33,22 @@ contexto de cómo se construyó el código, con la consigna invertida
 puede escribir es el acta, corriendo el comando `lib/cuaderno.py` que le llega
 con su ruta absoluta en el prompt.
 
-**Si el cambio se commitea antes de que cierre el turno, el hook deja de
-verlo**: el detector lee `git status`, así que lo ya commiteado sale de su
-vista y aprueba. En el flujo normal no muerde —el hook corre antes de que el
-turno cierre, y el commit viene después—, pero un agente al que se le pide
-commitear a mitad de camino saca ese código del alcance del control. Un acta
-que ya cubría el archivo **sí** sigue venciendo bien después del commit: la
-huella se recalcula del archivo, esté commiteado o no. El hueco es solo para
-código caro que nunca tuvo acta. Taparlo requiere guardar el `HEAD` al abrir la
-sesión para que `Stop` compare contra eso: es trabajo de v1.1 decidido a
-propósito, y está anotado como `⏸️ POSTERGADO` en `PROOF.md`, no dado por
-supuesto.
+**Lo que se commitea dentro del turno también cuenta** (desde la 1.1). Hasta la
+1.0 el detector leía solo `git status`, y un commit a mitad de turno se llevaba
+el cambio caro fuera de su vista. Se creía un caso raro; el uso real dijo otra
+cosa: en un proyecto en producción, 58 de 70 archivos caros commiteados en tres
+semanas —el webhook de Stripe, en seis commits de un mismo día— pasaron sin
+que el hook nombrara ninguno. Ahora el hook guarda el `HEAD` al abrir la sesión
+y cada vez que deja cerrar un turno, y suma lo commiteado desde ahí. Si esa
+marca no existe (una sesión abierta antes de actualizar), vuelve a mirar solo
+`git status`.
+
+**Pasar la segunda vuelta deja rastro** (desde la 1.1). Cuando el agente ignora
+el freno, el hook lo deja cerrar igual —nunca te encierra—, pero ahora anota lo
+pendiente en `⬜ ABIERTO` con la leyenda *el turno cerró sin prueba ni deuda
+declarada*. No cuenta como deuda (no destraba nada) y encabeza el parte de la
+próxima sesión. Antes ese aviso salía solo por pantalla, y en tres semanas de
+uso real unos quince turnos cerraron así sin dejar nada escrito.
 
 **Sin git, el hook nunca bloquea *por código detectado*: aprueba siempre**,
 porque no puede saber qué archivo se tocó — pero un 🔴 BLOQUEANTE escrito a
@@ -144,7 +149,8 @@ included, in [`skills/proof-first/references/catalogo.md`](skills/proof-first/re
 
 - **The `Stop` hook** (`hooks/stop_gate.py`) is a plain command hook — no
   model, no judgment call. It's a deterministic detector: it reads `git
-  status` for uncommitted changes and matches their paths against the
+  status` for uncommitted changes, plus whatever was committed since the
+  last time it let a turn close, and matches their paths against the
   catalogue's patterns (`lib/deteccion.py`) — separately, it also recomputes
   the fingerprint of every file a proven *acta* covers, committed or not, so
   an acta expires the moment its code changes, whether or not that change is
@@ -199,17 +205,20 @@ nothing further once the plugin is installed. Ask on demand with `/proof` (statu
   because that's a person's decision, not an inference from a diff. This is
   a deliberate trade-off: a false approve on undetectable changes is
   recoverable, a false block on a project the hook can't reason about isn't.
-- **A commit mid-turn hides the change:** the detector reads `git status`, so
-  an expensive change that gets committed before the turn closes is no longer
-  in its view and the hook approves. In the normal flow this doesn't bite —
-  the hook runs before the turn ends and committing comes after — but an agent
-  asked to commit halfway through takes that code out of the gate's sight. An
-  *acta* that already covers the file still expires correctly after a commit,
-  because the fingerprint is recomputed from the file itself, committed or
-  not; the gap is only for expensive code that never had an acta. Closing it
-  means recording `HEAD` at session start so `Stop` can diff against it —
-  deliberate future work (v1.1), not an oversight, and written down in
-  `PROOF.md` as postponed rather than left implied.
+- **Commits made during the turn count too (since 1.1):** up to 1.0 the
+  detector only read `git status`, so a commit mid-turn took the expensive
+  change out of its view. Real usage showed this was the common case, not the
+  rare one: in one production project, 58 of 70 expensive files committed
+  over three weeks — the Stripe webhook among them, six commits in one day —
+  went through without the hook naming any. The hook now records `HEAD` at
+  session start and every time it lets a turn close, and adds whatever was
+  committed since. With no such mark (a session opened before upgrading) it
+  falls back to `git status` alone.
+- **Getting through on the second pass leaves a trace (since 1.1):** the hook
+  still never locks you in, but what was left unproven is now written to
+  `⬜ ABIERTO` as *the turn closed with no proof and no declared debt*. It
+  doesn't count as debt (it unblocks nothing) and it heads the next session's
+  report. Before, that warning only went to the screen.
 - **A first block that feels wrong:** the detector matches file *paths*
   against broad patterns — `models`, `job`, `schedule`, `token` — so an
   ordinary file can trip it (`src/models/Button.tsx`, `lib/job-queue-ui.ts`).
